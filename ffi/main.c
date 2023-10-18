@@ -1,4 +1,4 @@
-#include "ptrsx_unix.h"
+#include "ptrsx.h"
 #include <stdio.h>
 
 int main() {
