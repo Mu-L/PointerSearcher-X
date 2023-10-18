@@ -49,11 +49,11 @@ pub struct SubCommandScan1 {
     pub file: PathBuf,
     #[argh(option, short = 't', description = "target address")]
     pub target: Address,
-    #[argh(option, default = "7", short = 'd', description = "depth")]
+    #[argh(option, default = "7", short = 'd', description = "depth default 7")]
     pub depth: usize,
-    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset")]
+    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset default 0:600")]
     pub offset: Offset,
-    #[argh(option, default = "3", short = 'n', description = "node")]
+    #[argh(option, default = "3", short = 'n', description = "node default 3")]
     pub node: usize,
     #[argh(option, description = "out dir")]
     pub dir: Option<PathBuf>,
@@ -68,11 +68,11 @@ pub struct SubCommandScan2 {
     pub start: Address,
     #[argh(option, short = 't', description = "target address")]
     pub target: Address,
-    #[argh(option, default = "7", short = 'd', description = "depth")]
+    #[argh(option, default = "7", short = 'd', description = "depth default 7")]
     pub depth: usize,
-    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset")]
+    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset default 0:600")]
     pub offset: Offset,
-    #[argh(option, default = "3", short = 'n', description = "node")]
+    #[argh(option, default = "3", short = 'n', description = "node default 3")]
     pub node: usize,
     #[argh(option, description = "out dir")]
     pub dir: Option<PathBuf>,
