@@ -95,6 +95,6 @@ impl Spinner {
     pub fn stop(&mut self, msg: impl Display) {
         self.still_spinning.store(false, Ordering::Relaxed);
         self.thread_handle.take().unwrap().join().unwrap();
-        println!("\x1B[34m[*]\x1B[0m {msg}")
+        println!("\n\x1B[34m[*]\x1B[0m {msg}")
     }
 }
