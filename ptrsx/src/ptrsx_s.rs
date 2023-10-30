@@ -135,7 +135,7 @@ impl PtrsxScanner {
             if size == 0 {
                 break;
             }
-            for chuks in buf[..size].chunks(PTRSIZE * 2) {
+            for chuks in buf[..size].chunks_exact(PTRSIZE * 2) {
                 let (key, value) = chuks.split_at(PTRSIZE);
                 unsafe {
                     self.forward.insert(

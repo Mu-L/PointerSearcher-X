@@ -1,7 +1,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 #[cfg(not(any(target_endian = "little", target_os = "android", target_arch = "x86")))]
-panic!("not supported.");
+compile_error!("not supported.");
 
 mod ffi_types;
 
