@@ -15,6 +15,8 @@ fn find_base_address<P: ProcessInfo>(proc: &P, name: &str) -> Result<usize, &'st
         .ok_or("find modules error")
 }
 
+const POINTER_ERR: &str = "pointer overflow";
+
 impl ChainCommand {
     pub fn init(self) -> Result<(), Error> {
         let ChainCommand { pid, chain: path, num } = self;
@@ -25,11 +27,11 @@ impl ChainCommand {
         let mut buf = [0; mem::size_of::<usize>()];
 
         for off in offv {
-            proc.read_at(&mut buf, address.checked_add_signed(off).ok_or("pointer overflow")?)?;
+            proc.read_at(&mut buf, address.checked_add_signed(off).ok_or(POINTER_ERR)?)?;
             address = usize::from_le_bytes(buf);
         }
 
-        let address = address.checked_add_signed(last).ok_or("pointer overflow")?;
+        let address = address.checked_add_signed(last).ok_or(POINTER_ERR)?;
         println!("{address:#x}");
 
         if let Some(num) = num {

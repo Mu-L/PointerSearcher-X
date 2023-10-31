@@ -12,16 +12,16 @@ use std::{
 };
 
 use ptrsx::Module;
-use terminal_size::terminal_size;
+use terminal_size::{terminal_size, Height, Width};
 
-pub fn select_base_module(items: &[Module]) -> Result<Vec<Module>, super::error::Error> {
+pub fn select_base_module(items: &[Module]) -> Result<Vec<Module>, super::Error> {
     let words = items
         .iter()
         .filter_map(|m| Path::new(&m.name).file_name())
         .enumerate()
         .map(|(k, v)| format!("[\x1B[32m{k}\x1B[0m: {}] ", v.to_string_lossy()));
 
-    let (width, _) = terminal_size().ok_or("get terminal_size")?;
+    let (width, _) = terminal_size().unwrap_or_else(|| (Width(80), Height(160)));
     let width = width.0 as usize;
 
     let mut s = String::with_capacity(0x2000);
