@@ -35,7 +35,7 @@ impl SubCommandScan1 {
             let name = Path::new(&module.name)
                 .file_name()
                 .and_then(|f| f.to_str())
-                .expect("get region name error");
+                .expect("unknown error");
             let file = dir.join(format!("{name}.scandata"));
             let file = OpenOptions::new()
                 .write(true)
