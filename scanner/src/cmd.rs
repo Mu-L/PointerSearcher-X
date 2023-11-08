@@ -86,7 +86,7 @@ pub struct SubCommandScan2 {
     pub depth: usize,
     #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset default 0:600")]
     pub offset: Offset,
-    #[argh(option, default = "3", short = 'n', description = "node default 3")]
+    #[argh(option, default = "1", short = 'n', description = "node default 1")]
     pub node: usize,
     #[argh(option, description = "out dir")]
     pub dir: Option<PathBuf>,

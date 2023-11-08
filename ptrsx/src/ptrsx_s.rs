@@ -32,6 +32,9 @@ where
     F: FnMut(&'a T) -> Ordering,
 {
     let mut size = slice.len();
+    if size == 0 {
+        return Err(0);
+    }
     let mut base = 0usize;
     while size > 1 {
         let half = size / 2;
@@ -80,10 +83,10 @@ where
     {
         writer.write_all(itoa.format(target - base).as_bytes())?;
         for &off in avec.iter().rev() {
-            writer.write_all(b"@")?;
+            writer.write_all(&[0x40])?;
             writer.write_all(itoa.format(off).as_bytes())?;
         }
-        writer.write_all(b"\n")?;
+        writer.write_all(&[0xA])?;
     }
 
     if lv <= depth {
@@ -173,76 +176,69 @@ impl PtrsxScanner {
     }
 }
 
-#[cfg(target_pointer_width = "64")]
 #[test]
 fn test_pointer_chain_scanner_s1() {
-    let ptrs = BTreeMap::from([
+    let forward = BTreeMap::from([
         (0x104B28008, 0x125F040A0),
         (0x104B28028, 0x125F04090),
         (0x104B281B0, 0x125F040E0),
         (0x125F04090, 0x125F04080),
     ]);
 
-    let points = ptrs
+    let ref points = forward
         .range((Included(0x104B18000), Included(0x104B38000)))
         .map(|(k, _)| k)
         .copied()
         .collect::<Vec<_>>();
 
-    let mut map: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for (k, v) in ptrs {
-        map.entry(v).or_default().push(k);
+    let mut reverse: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (k, v) in forward {
+        reverse.entry(v).or_default().push(k);
     }
 
-    let mut out = Vec::with_capacity(128);
+    let ref mut writer = Vec::with_capacity(128);
+    let params = WalkParams {
+        base: 0x104B18000,
+        depth: 4,
+        target: 0x125F04080,
+        node: 3,
+        offset: (0, 16),
+        points,
+        writer,
+    };
 
-    pointer_chain_scanner(
-        &map,
-        WalkParams {
-            base: 0x104B18000,
-            depth: 4,
-            target: 0x125F04080,
-            node: 3,
-            offset: (0, 16),
-            points: &points,
-            writer: &mut out,
-        },
-    )
-    .unwrap();
+    pointer_chain_scanner(&reverse, params).unwrap();
 
-    assert_eq!(out, b"65576@0@16@16@0\n65576@0@16@0\n");
+    assert_eq!(writer, b"65576@0@16@16@0\n65576@0@16@0\n");
 }
 
-#[cfg(target_pointer_width = "64")]
 #[test]
 fn test_pointer_chain_scanner_s2() {
-    let ptrs = BTreeMap::from([
+    let forward = BTreeMap::from([
         (0x104B28008, 0x125F040A0),
         (0x104B28028, 0x125F04090),
         (0x104B281B0, 0x125F040E0),
         (0x125F04090, 0x125F04080),
     ]);
 
-    let mut map: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for (k, v) in ptrs {
-        map.entry(v).or_default().push(k);
+    let mut reverse: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (k, v) in forward {
+        reverse.entry(v).or_default().push(k);
     }
 
-    let mut out = Vec::with_capacity(128);
+    let ref mut writer = Vec::with_capacity(128);
 
-    pointer_chain_scanner(
-        &map,
-        WalkParams {
-            base: 0,
-            depth: 4,
-            target: 0x125F04080,
-            node: 3,
-            offset: (0, 16),
-            points: &[0x125F04090],
-            writer: &mut out,
-        },
-    )
-    .unwrap();
+    let params = WalkParams {
+        base: 0,
+        depth: 4,
+        target: 0x125F04080,
+        node: 3,
+        offset: (0, 16),
+        points: &[0x125F04090],
+        writer,
+    };
 
-    assert_eq!(out, b"4931469456@16@16@0\n4931469456@16@16@16@0\n");
+    pointer_chain_scanner(&reverse, params).unwrap();
+
+    assert_eq!(writer, b"4931469456@16@16@0\n4931469456@16@16@16@0\n");
 }

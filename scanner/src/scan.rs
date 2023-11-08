@@ -1,6 +1,7 @@
 use std::{fs::OpenOptions, io::BufWriter, path::Path};
 
 use ptrsx::{Params, PtrsxScanner};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use super::{select_base_module, Address, AddressList, Error, Offset, Spinner, SubCommandScan1, SubCommandScan2};
 
@@ -31,7 +32,7 @@ impl SubCommandScan1 {
         let dir = dir.unwrap_or_default();
 
         let mut spinner = Spinner::start("Start scanning pointer chain...");
-        pages.iter().try_for_each(|module| {
+        pages.par_iter().try_for_each(|module| {
             let name = Path::new(&module.name)
                 .file_name()
                 .and_then(|f| f.to_str())
