@@ -79,22 +79,23 @@ where
     if is_align {
         for &(start, size) in region {
             for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
-                let size = proc.read_at(buf.as_mut_slice(), start + off)?;
-                for (k, buf) in buf[..size].windows(PTRSIZE).enumerate().step_by(PTRSIZE) {
-                    let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
-                    if region
-                        .binary_search_by(|&(start, size)| {
-                            if (start..start + size).contains(&value) {
-                                Ordering::Equal
-                            } else {
-                                start.cmp(&value)
-                            }
-                        })
-                        .is_ok()
-                    {
-                        let key = start + off + k;
-                        writer.write_all(&key.to_le_bytes())?;
-                        writer.write_all(&value.to_le_bytes())?;
+                if let Ok(size) = proc.read_at(buf.as_mut_slice(), start + off) {
+                    for (k, buf) in buf[..size].windows(PTRSIZE).enumerate().step_by(PTRSIZE) {
+                        let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
+                        if region
+                            .binary_search_by(|&(start, size)| {
+                                if (start..start + size).contains(&value) {
+                                    Ordering::Equal
+                                } else {
+                                    start.cmp(&value)
+                                }
+                            })
+                            .is_ok()
+                        {
+                            let key = start + off + k;
+                            writer.write_all(&key.to_le_bytes())?;
+                            writer.write_all(&value.to_le_bytes())?;
+                        }
                     }
                 }
             }
@@ -102,22 +103,23 @@ where
     } else {
         for &(start, size) in region {
             for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
-                let size = proc.read_at(buf.as_mut_slice(), start + off)?;
-                for (k, buf) in buf[..size].windows(PTRSIZE).enumerate() {
-                    let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
-                    if region
-                        .binary_search_by(|&(start, size)| {
-                            if (start..start + size).contains(&value) {
-                                Ordering::Equal
-                            } else {
-                                start.cmp(&value)
-                            }
-                        })
-                        .is_ok()
-                    {
-                        let key = start + off + k;
-                        writer.write_all(&key.to_le_bytes())?;
-                        writer.write_all(&value.to_le_bytes())?;
+                if let Ok(size) = proc.read_at(buf.as_mut_slice(), start + off) {
+                    for (k, buf) in buf[..size].windows(PTRSIZE).enumerate() {
+                        let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
+                        if region
+                            .binary_search_by(|&(start, size)| {
+                                if (start..start + size).contains(&value) {
+                                    Ordering::Equal
+                                } else {
+                                    start.cmp(&value)
+                                }
+                            })
+                            .is_ok()
+                        {
+                            let key = start + off + k;
+                            writer.write_all(&key.to_le_bytes())?;
+                            writer.write_all(&value.to_le_bytes())?;
+                        }
                     }
                 }
             }
@@ -134,26 +136,17 @@ impl PtrsxScanner {
     {
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
-        let mut iter = pages.iter().flat_map(|m| {
+        self.modules.extend(pages.iter().flat_map(|m| {
             let path = Path::new(m.name()?);
             let name = path.has_root().then_some(path)?.to_str()?.to_string();
             Some(Module { start: m.start(), end: m.end(), name })
-        });
-        let mut current = iter.next().ok_or("no base address module available.")?;
-        for page in iter {
-            if page.name == current.name {
-                current.end = page.end;
-            } else {
-                self.modules.push(current);
-                current = page;
-            }
-        }
-        self.modules.push(current);
+        }));
 
         self.forward = create_pointer_map(proc, &region, is_align)?;
         for (&k, &v) in &self.forward {
             self.reverse.entry(v).or_default().push(k);
         }
+        add_numbers_to_duplicates(&mut self.modules);
 
         Ok(())
     }
@@ -163,23 +156,26 @@ impl PtrsxScanner {
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
 
-        let mut modules = Vec::with_capacity(pages.len());
-        let mut iter = pages.iter().flat_map(|m| {
-            let path = Path::new(m.name()?);
-            let name = path.has_root().then_some(path)?.to_str()?.to_string();
-            Some(Module { start: m.start(), end: m.end(), name })
-        });
-        let mut current = iter.next().ok_or("no base address module available.")?;
-        for page in iter {
-            if page.name == current.name {
-                current.end = page.end;
-            } else {
-                modules.push(current);
-                current = page;
-            }
-        }
-        modules.push(current);
+        let mut modules = pages
+            .iter()
+            .flat_map(|m| {
+                let path = Path::new(m.name()?);
+                let name = path.has_root().then_some(path)?.to_str()?.to_string();
+                Some(Module { start: m.start(), end: m.end(), name })
+            })
+            .collect::<Vec<_>>();
+        add_numbers_to_duplicates(&mut modules);
         encode_modules(&modules, writer)?;
         create_pointer_map_with_writer(&proc, &region, is_align, writer)
+    }
+}
+
+fn add_numbers_to_duplicates(modules: &mut [Module]) {
+    let mut counts = std::collections::HashMap::new();
+    for module in modules.iter_mut() {
+        let count = counts.entry(module.name.clone()).or_insert(1);
+        let suffix = format!("[{}]", count);
+        module.name.push_str(&suffix);
+        *count += 1;
     }
 }
