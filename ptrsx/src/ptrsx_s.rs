@@ -185,7 +185,7 @@ fn test_pointer_chain_scanner_s1() {
         (0x125F04090, 0x125F04080),
     ]);
 
-    let ref points = forward
+    let points = &forward
         .range((Included(0x104B18000), Included(0x104B38000)))
         .map(|(k, _)| k)
         .copied()
@@ -196,7 +196,7 @@ fn test_pointer_chain_scanner_s1() {
         reverse.entry(v).or_default().push(k);
     }
 
-    let ref mut writer = Vec::with_capacity(128);
+    let writer = &mut Vec::with_capacity(128);
     let params = WalkParams {
         base: 0x104B18000,
         depth: 4,
@@ -226,7 +226,7 @@ fn test_pointer_chain_scanner_s2() {
         reverse.entry(v).or_default().push(k);
     }
 
-    let ref mut writer = Vec::with_capacity(128);
+    let writer = &mut Vec::with_capacity(128);
 
     let params = WalkParams {
         base: 0,
