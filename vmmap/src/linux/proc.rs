@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs::{self, OpenOptions},
     os::unix::prelude::FileExt,
     path::{Path, PathBuf},
 };
@@ -44,7 +44,10 @@ impl Process {
         || -> _ {
             let maps = fs::read_to_string(format!("/proc/{pid}/maps"))?;
             let pathname = fs::read_link(format!("/proc/{pid}/exe"))?;
-            let handle = fs::File::open(format!("/proc/{pid}/mem"))?;
+            let handle = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(format!("/proc/{pid}/mem"))?;
             Ok(Self { pid, pathname, maps, handle })
         }()
         .map_err(Error::OpenProcess)

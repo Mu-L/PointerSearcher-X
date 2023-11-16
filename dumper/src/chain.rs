@@ -1,6 +1,6 @@
 use std::{fmt::Write, mem, path::Path};
 
-use vmmap::{Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
+use vmmap::{Process, ProcessInfo, VirtualMemoryRead, VirtualMemoryWrite, VirtualQuery};
 
 use super::{ChainCommand, Error};
 
@@ -19,7 +19,7 @@ fn find_base_address<P: ProcessInfo>(proc: &P, name: &str, index: usize) -> Resu
 
 impl ChainCommand {
     pub fn init(self) -> Result<(), Error> {
-        let ChainCommand { pid, chain, num } = self;
+        let ChainCommand { pid, chain, write, read } = self;
         let proc = Process::open(pid)?;
         let Chain { name, index, chain, offset } = parse_chain(&chain).ok_or("parse pointer chain error")?;
         let mut address = find_base_address(&proc, name, index)?;
@@ -34,10 +34,14 @@ impl ChainCommand {
         let address = address.checked_add_signed(offset).ok_or("pointer overflow")?;
         println!("{address:#x}");
 
-        if let Some(num) = num {
-            let mut buf = vec![0; num];
+        if let Some(size) = read {
+            let mut buf = vec![0; size];
             proc.read_at(&mut buf, address)?;
             println!("{}", hex_encode(&buf));
+        }
+
+        if let Some(bytes) = write {
+            proc.write_at(&bytes.0, address)?;
         }
 
         Ok(())

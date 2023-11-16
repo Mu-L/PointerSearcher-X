@@ -1,58 +1,55 @@
 # PointerSearcher-X
 
-> Memory dynamic pointer chain (scan/backtrack/search) tool.
+> 内存中的指针链自动化扫描工具
 
-([中文](./readme-zh-hans.md) / [English](./readme.md))
+## 指针搜索概念
 
-## PointerSearch concept
+ASLR导致程序内存地址在启动程序时始终不同。所谓的“静态”地址是相对于程序代码（BinaryFile）的地址。有了静态地址，一旦找到它，你就可以稳定计算出这个地址，因为加载程序（BinaryFile）的地址很容易找到。不幸的是，并非所有感兴趣的内存都是“静态的”，因为这些要么需要代码黑客（通常称为ASM HACK），要么需要指针链（找到此链的过程通常被称为指针搜索PointerSearcher）。
 
-ASLR causes the program memory address to always be different when you start the program. The so-called "static" addresses are addresses relative to the beginning of the program code (BinaryFile). With a static address, once you find it, you're done, because the address of the loader (BinaryFile) is easy to find. Unfortunately, not all memory of interest are "static", for these either code hack(often referred to as ASM hack) is needed or a pointer chain is needed(to find this chain is often referred to as pointer search).
+指针搜索通常被用于自动化寻找较为复杂的指针链，对于很简单的指针链，只需要调试器就可以找到了。当然，指针搜索经常也适用于那些无法使用调试器的场景。
 
-Pointer search is usually used to automatically find more complex pointer chains. For very simple pointer chains, only a debugger is needed to find them. Of course, pointer searches are often also useful in scenarios where a debugger cannot be used.
+## 功能
 
-## Features:
+这个项目是一个工具集，主要有三个工具：
 
-It contains three tools: 
+- `scanner` 用于扫描指针文件.
 
-- `scanner` for scanning pointer files.
+- `dumper` 用于dump进程内存.
 
-- `dumper` for dump process memory. 
+各个工具间相互独立，dumper运行过程中占用内存不超过3MB，所以你可以在性能垃圾的设备，例如 nintendo-switch 上dump内存，然后上传到性能更强的pc或服务器上执行扫描。
 
-This program does not require the running status of the target process. It only needs a dump file to perform pointer scanning. You can use the pointer scanning function on any supported platform.
-For example, generate a dump file on macOS and then perform scanning on a Linux server.
+## 平台支持:
 
-## Support:
+- [x] aarch64-darwin (stable)
 
-- [x] aarch64-darwin
+- [x] aarch64-android (beta)
 
-- [ ] aarch64-android
+- [x] aarch64-linux-gnu (stable)
+
+- [x] x86_64-linux-gnu (stable)
+
+- [x] x86_64-windows (alpha)
+
+- [ ] aarch64-apple-ios
 
 - [ ] nintendo-switch
 
-- [x] x86_64-linux
-
-- [x] x86_64-windows (Version >= Windows 7)
-
 - [ ] x86_64-darwin
 
-Currently, it is only tested on 64-bit systems and 64-bit targets. Although it can be compiled to other architectures, it cannot run normally. Support for 32-bit targets and other operating systems is in progress.
+## 关于
 
-## Tutorial
-
-https://www.bilibili.com/video/BV1Hh411E7oW/
-
-[tutorial.md](tutorial.md)
-
-## About
-
-It was only intended to solve the following two problems, but has now been extended to other platforms.
+它只是为了解决下面两个问题所创建的，不过现在已经扩展到其它平台。
 
 https://github.com/scanmem/scanmem/issues/431
 
 https://github.com/korcankaraokcu/PINCE/issues/15
 
-If you want to incorporate PointerSearcher-X into your application, it's very easy. Its permissive MIT-style license won't burden you. See the [API reference](https://github.com/kekeimiku/PointerSearcher-X/blob/main/ffi/ptrsx.h) for details.
+如果您想将 PointerSearcher-X 合并到您的应用程序中，这非常容易，其宽松的MIT许可证不会给您带来负担。 有关详细信息，请参阅 [API 参考](https://github.com/kekeimiku/PointerSearcher-X/blob/main/ffi/ptrsx.h)。
 
-## Disclaimer
+## FAQ
 
-This is just for learning rust, no malicious purpose.
+[FAQ](./faq-zh.md)
+
+## 免责声明
+
+编写它只是为了学习rust，没有恶意目的。

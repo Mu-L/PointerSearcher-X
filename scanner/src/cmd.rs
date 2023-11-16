@@ -30,7 +30,7 @@ pub struct Offset(pub (usize, usize));
 
 impl FromArgValue for Offset {
     fn from_arg_value(value: &str) -> Result<Self, String> {
-        let (lr, ur) = value.split_once(':').ok_or("err")?;
+        let (lr, ur) = value.split_once(':').ok_or(format!("parse command error: {value}"))?;
         let lr = lr.trim_start_matches('-').parse::<usize>().map_err(|e| e.to_string())?;
         let ur = ur.trim_start_matches('+').parse::<usize>().map_err(|e| e.to_string())?;
         Ok(Self((lr, ur)))
