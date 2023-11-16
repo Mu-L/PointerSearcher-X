@@ -5,7 +5,7 @@ pub enum Error {
     WriteMemory(machx::kern_return::kern_return_t),
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub enum Error {
     OpenProcess(std::io::Error),
     ReadMemory(std::io::Error),
@@ -36,7 +36,7 @@ impl std::fmt::Display for Error {
                 Error::WriteMemory(err) => write!(f, "WriteMemory, {}. code: {err}", mach_error(*err)),
             }
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         match self {
             Error::OpenProcess(err) => write!(f, "OpenProcess, {err}"),
             Error::ReadMemory(err) => write!(f, "ReadMemory, {err}"),

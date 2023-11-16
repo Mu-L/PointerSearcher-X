@@ -1,4 +1,9 @@
-use std::{cmp::Ordering, collections::BTreeMap, io, path::Path};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap},
+    io,
+    path::Path,
+};
 
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
@@ -171,11 +176,11 @@ impl PtrsxScanner {
 }
 
 fn add_numbers_to_duplicates(modules: &mut [Module]) {
-    let mut counts = std::collections::HashMap::new();
+    use core::fmt::Write;
+    let mut counts = HashMap::with_capacity(modules.len());
     for module in modules.iter_mut() {
         let count = counts.entry(module.name.clone()).or_insert(1);
-        let suffix = format!("[{}]", count);
-        module.name.push_str(&suffix);
+        write!(module.name, "[{count}]").unwrap();
         *count += 1;
     }
 }

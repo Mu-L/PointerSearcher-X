@@ -2,7 +2,7 @@
 panic!("32-bit macos is not supported.");
 
 mod error;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod linux;
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -12,14 +12,14 @@ pub mod windows;
 use std::path::Path;
 
 pub use self::error::Error;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub use self::linux::{Page, Process};
 #[cfg(target_os = "macos")]
 pub use self::macos::{Page, Process};
 #[cfg(target_os = "windows")]
 pub use self::windows::{Page, Process};
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_family = "unix")]
 pub type Pid = i32;
 
 #[cfg(target_os = "windows")]
