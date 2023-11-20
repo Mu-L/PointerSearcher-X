@@ -39,6 +39,8 @@ pub const DEFAULT_BUF_SIZE: usize = 0x40000;
 #[cfg(any(target_os = "windows", all(target_os = "macos", target_arch = "x86_64"),))]
 pub const DEFAULT_BUF_SIZE: usize = 0x1000;
 
-pub const PTRHEADER64: [u8; 8] = [b'P', b'T', b'R', 64, 0, 0, 0, 0];
+#[cfg(target_pointer_width = "64")]
+pub const PTRHEADER: [u8; 8] = [b'P', b'T', b'R', 64, 0, 0, 0, 0];
 
-pub const PTRHEADER32: [u8; 8] = [b'P', b'T', b'R', 32, 0, 0, 0, 0];
+#[cfg(target_pointer_width = "32")]
+pub const PTRHEADER: [u8; 8] = [b'P', b'T', b'R', 32, 0, 0, 0, 0];
