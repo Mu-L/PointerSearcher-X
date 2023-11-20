@@ -4,7 +4,7 @@ use super::Module;
 pub fn encode_modules<W: std::io::Write>(modules: &[Module], writer: &mut W) -> std::io::Result<()> {
     use std::io::Write;
 
-    use super::PTRHEADER64;
+    use super::PTRHEADER;
 
     let mut data = Vec::new();
     let len = modules.len().to_le_bytes();
@@ -15,10 +15,7 @@ pub fn encode_modules<W: std::io::Write>(modules: &[Module], writer: &mut W) -> 
         data.write_all(&name.len().to_le_bytes())?;
         data.write_all(name.as_bytes())?;
     }
-    #[cfg(target_pointer_width = "64")]
-    writer.write_all(&PTRHEADER64)?;
-    #[cfg(target_pointer_width = "32")]
-    writer.write_all(&PTRHEADER32)?;
+    writer.write_all(&PTRHEADER)?;
     writer.write_all(&data.len().to_le_bytes())?;
     writer.write_all(&data)
 }
