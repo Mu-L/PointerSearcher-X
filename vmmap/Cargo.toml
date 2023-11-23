@@ -10,7 +10,7 @@ repository = "https://github.com/kekeimiku/PointerSearcher-X/tree/main/vmmap"
 readme = "README.md"
 
 [target.'cfg(windows)'.dependencies.windows-sys]
-version = "0.48.0"
+version = "0.52.0"
 default-features = false
 features = [
     "Win32_Foundation",
