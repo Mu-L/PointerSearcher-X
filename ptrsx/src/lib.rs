@@ -14,14 +14,14 @@ mod check;
 pub use check::*;
 
 #[cfg(feature = "dumper")]
-mod ptrsx_d;
+mod dump;
 #[cfg(feature = "dumper")]
-pub use ptrsx_d::*;
+pub use dump::*;
 
 #[cfg(feature = "scanner")]
-mod ptrsx_s;
+mod search;
 #[cfg(feature = "scanner")]
-pub use ptrsx_s::*;
+pub use search::*;
 
 #[cfg(target_os = "windows")]
 mod file;

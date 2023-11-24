@@ -21,20 +21,20 @@ pub enum Error {
 
 #[cfg(target_os = "macos")]
 #[inline]
-pub unsafe fn mach_error(error_value: machx::error::mach_error_t) -> String {
-    let ptr = machx::error::mach_error_string(error_value);
-    String::from_utf8_unchecked(std::ffi::CStr::from_ptr(ptr).to_bytes().to_owned())
+pub fn mach_error<'a>(code: i32) -> &'a str {
+    unsafe {
+        let ptr = machx::error::mach_error_string(code);
+        core::str::from_utf8_unchecked(std::ffi::CStr::from_ptr(ptr).to_bytes())
+    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         #[cfg(target_os = "macos")]
-        unsafe {
-            match self {
-                Error::OpenProcess(err) => write!(f, "OpenProcess, {}. code: {err}", mach_error(*err)),
-                Error::ReadMemory(err) => write!(f, "ReadMemory, {}. code: {err}", mach_error(*err)),
-                Error::WriteMemory(err) => write!(f, "WriteMemory, {}. code: {err}", mach_error(*err)),
-            }
+        match self {
+            Error::OpenProcess(err) => write!(f, "OpenProcess, {}. code: {err}", mach_error(*err)),
+            Error::ReadMemory(err) => write!(f, "ReadMemory, {}. code: {err}", mach_error(*err)),
+            Error::WriteMemory(err) => write!(f, "WriteMemory, {}. code: {err}", mach_error(*err)),
         }
         #[cfg(any(target_os = "linux", target_os = "android"))]
         match self {
