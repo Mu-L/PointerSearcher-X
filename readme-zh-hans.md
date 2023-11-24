@@ -20,13 +20,13 @@ ASLR导致程序内存地址在启动程序时始终不同。所谓的“静态�
 
 ## 平台支持:
 
-- [x] aarch64-darwin (stable)
+- [x] aarch64-darwin
 
 - [x] aarch64-android (beta)
 
-- [x] aarch64-linux-gnu (stable)
+- [x] aarch64-linux-gnu
 
-- [x] x86_64-linux-gnu (stable)
+- [x] x86_64-linux-gnu
 
 - [x] x86_64-windows (alpha)
 
