@@ -22,7 +22,7 @@ It contains three tools:
 
 - [x] aarch64-darwin
 
-- [x] aarch64-android (beta)
+- [x] aarch64-linux-android (beta)
 
 - [x] aarch64-linux-gnu
 

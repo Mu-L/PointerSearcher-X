@@ -22,7 +22,7 @@ ASLR导致程序内存地址在启动程序时始终不同。所谓的“静态�
 
 - [x] aarch64-darwin
 
-- [x] aarch64-android (beta)
+- [x] aarch64-linux-android (beta)
 
 - [x] aarch64-linux-gnu
 
