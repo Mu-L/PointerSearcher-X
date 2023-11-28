@@ -1,22 +1,22 @@
 #![allow(clippy::missing_safety_doc)]
 
-#[cfg(not(any(target_endian = "little", target_os = "android", target_arch = "x86")))]
+#[cfg(not(target_endian = "little"))]
 compile_error!("not supported.");
 
 mod ffi_types;
 
 use std::{
     ffi::{c_char, c_int, CStr, CString},
-    fs::OpenOptions,
-    io::BufWriter,
-    ops::Deref,
+    fs::{File, OpenOptions},
+    ops::{Deref, Range},
     path::Path,
-    ptr, str,
+    ptr::{self, slice_from_raw_parts},
+    str::{self, Utf8Error},
 };
 
 pub use ffi_types::*;
 use ptrsx::PtrsxScanner;
-use vmmap::{Pid, Process};
+use vmmap::Pid;
 
 macro_rules! try_result {
     ($p:expr, $m:expr) => {
@@ -72,23 +72,35 @@ pub unsafe extern "C" fn create_pointer_map_file(
     ptr: *mut PointerSearcherX,
     pid: Pid,
     align: bool,
-    file_name: *const c_char,
+    info_file_path: *const c_char,
+    bin_file_path: *const c_char,
 ) -> c_int {
     let ptrsx = &mut (*ptr);
-    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_name).to_bytes()));
-    let file_name = Path::new(string);
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(info_file_path).to_bytes()));
+    let info_file_name = Path::new(string);
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(bin_file_path).to_bytes()));
+    let bin_file_name = Path::new(string);
     let scanner = &ptrsx.inner;
-    let mut writer = BufWriter::new(try_result!(
+    let info_file = try_result!(
         ptrsx,
         OpenOptions::new()
             .write(true)
             .read(true)
             .append(true)
             .create_new(true)
-            .open(file_name)
-    ));
+            .open(info_file_name)
+    );
+    let bin_file = try_result!(
+        ptrsx,
+        OpenOptions::new()
+            .write(true)
+            .read(true)
+            .append(true)
+            .create_new(true)
+            .open(bin_file_name)
+    );
 
-    try_result!(ptrsx, scanner.create_pointer_map_file(&mut writer, pid, align));
+    try_result!(ptrsx, scanner.create_pointer_map_file(pid, align, info_file, bin_file));
 
     0
 }
@@ -97,16 +109,14 @@ pub unsafe extern "C" fn create_pointer_map_file(
 pub unsafe extern "C" fn create_pointer_map(ptr: *mut PointerSearcherX, pid: Pid, align: bool) -> c_int {
     let ptrsx = &mut (*ptr);
     let scanner = &mut ptrsx.inner;
-    let proc = try_result!(ptrsx, Process::open(pid));
-    try_result!(ptrsx, scanner.create_pointer_map(&proc, align));
+    try_result!(ptrsx, scanner.create_pointer_map(pid, align));
     ptrsx.modules = Some(
         scanner
-            .modules
-            .iter()
-            .map(|m| Module {
-                start: m.start,
-                end: m.end,
-                name: CString::new(m.name.deref()).unwrap().into_raw(),
+            .get_modules_info()
+            .map(|(Range { start, end }, name)| Module {
+                start: *start,
+                end: *end,
+                name: CString::new(name.deref()).unwrap().into_raw(),
             })
             .collect(),
     );
@@ -114,20 +124,29 @@ pub unsafe extern "C" fn create_pointer_map(ptr: *mut PointerSearcherX, pid: Pid
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn load_pointer_map_file(ptr: *mut PointerSearcherX, file_name: *mut c_char) -> c_int {
+pub unsafe extern "C" fn load_pointer_map_file(ptr: *mut PointerSearcherX, file_path: *const c_char) -> c_int {
     let ptrsx = &mut (*ptr);
-    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_name).to_bytes()));
-    let path = Path::new(string);
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_path).to_bytes()));
+    let file = try_result!(ptrsx, File::open(string));
     let scanner = &mut ptrsx.inner;
-    try_result!(ptrsx, scanner.load_pointer_map_file(path));
+    try_result!(ptrsx, scanner.load_pointer_map_file(file));
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn load_modules_info_file(ptr: *mut PointerSearcherX, file_path: *const c_char) -> c_int {
+    let ptrsx = &mut (*ptr);
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_path).to_bytes()));
+    let file = try_result!(ptrsx, File::open(string));
+    let scanner = &mut ptrsx.inner;
+    try_result!(ptrsx, scanner.load_modules_info_file(file));
     ptrsx.modules = Some(
         scanner
-            .modules
-            .iter()
-            .map(|m| Module {
-                start: m.start,
-                end: m.end,
-                name: CString::new(m.name.deref()).unwrap().into_raw(),
+            .get_modules_info()
+            .map(|(Range { start, end }, name)| Module {
+                start: *start,
+                end: *end,
+                name: CString::new(name.deref()).unwrap().into_raw(),
             })
             .collect(),
     );
@@ -135,7 +154,7 @@ pub unsafe extern "C" fn load_pointer_map_file(ptr: *mut PointerSearcherX, file_
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn get_modules(ptr: *mut PointerSearcherX) -> ModuleList {
+pub unsafe extern "C" fn get_modules_info(ptr: *mut PointerSearcherX) -> ModuleList {
     let modules = (*ptr).modules.as_ref().unwrap();
     let len = modules.len();
     let data = modules.as_ptr();
@@ -143,21 +162,22 @@ pub unsafe extern "C" fn get_modules(ptr: *mut PointerSearcherX) -> ModuleList {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn scanner_pointer_chain_with_module(
+pub unsafe extern "C" fn scanner_pointer_chain(
     ptr: *mut PointerSearcherX,
-    module: Module,
+    modules: ModuleList,
     params: Params,
+    file_path: *const c_char,
 ) -> c_int {
     let ptrsx = &mut (*ptr);
-    let scanner = &ptrsx.inner;
-    let Params { target, depth, node, rangel, ranger, file_name } = params;
+    let scanner = &mut ptrsx.inner;
+    let Params { target, depth, node, rangel, ranger } = params;
     if node >= depth || depth > 32 {
         ptrsx.set_last_error(PARAMS_ERROR);
         return -1;
     }
-    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_name).to_bytes()));
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_path).to_bytes()));
     let file_name = Path::new(string);
-    let mut writer = BufWriter::new(try_result!(
+    let file = try_result!(
         ptrsx,
         OpenOptions::new()
             .write(true)
@@ -165,52 +185,20 @@ pub unsafe extern "C" fn scanner_pointer_chain_with_module(
             .append(true)
             .create_new(true)
             .open(file_name)
-    ));
+    );
 
-    #[rustfmt::skip]
-    let params = ptrsx::Params {
-        depth, target, node,
-        offset: (rangel, ranger),
-        writer: &mut writer,
-    };
+    let param = ptrsx::Param { depth, target, node, offset: (rangel, ranger) };
 
-    try_result!(ptrsx, scanner.scanner_with_range(module.start..module.end, params));
+    let binding = &*slice_from_raw_parts(modules.data, modules.len);
+    let modules = binding
+        .iter()
+        .map(|&Module { start, end, name }| {
+            Ok((start..end, str::from_utf8(CStr::from_ptr(name).to_bytes())?.to_string()))
+        })
+        .collect::<Result<Vec<_>, Utf8Error>>();
+    let modules = try_result!(ptrsx, modules);
 
-    0
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn scanner_pointer_chain_with_address(
-    ptr: *mut PointerSearcherX,
-    list: AddressList,
-    params: Params,
-) -> c_int {
-    let ptrsx = &mut (*ptr);
-    let scanner = &ptrsx.inner;
-    let Params { target, depth, node, rangel, ranger, file_name } = params;
-    if node >= depth || depth > 32 {
-        ptrsx.set_last_error(PARAMS_ERROR);
-        return -1;
-    }
-    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_name).to_bytes()));
-    let file_name = Path::new(string);
-    let mut writer = BufWriter::new(try_result!(
-        ptrsx,
-        OpenOptions::new()
-            .write(true)
-            .read(true)
-            .append(true)
-            .create_new(true)
-            .open(file_name)
-    ));
-    #[rustfmt::skip]
-    let params = ptrsx::Params {
-        depth, target, node,
-        offset: (rangel, ranger),
-        writer: &mut writer,
-    };
-    let address = core::slice::from_raw_parts(list.data, list.len);
-    try_result!(ptrsx, scanner.scanner_with_address(address, params));
+    try_result!(ptrsx, scanner.pointer_chain_scanner(modules, param, file));
 
     0
 }

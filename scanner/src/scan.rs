@@ -1,14 +1,17 @@
-use std::{fs::OpenOptions, io::BufWriter, path::Path};
+use std::{
+    fs::{File, OpenOptions},
+    path::PathBuf,
+};
 
-use ptrsx::{Params, PtrsxScanner};
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use ptrsx::{Param, PtrsxScanner};
 
-use super::{select_base_module, Address, AddressList, Error, Offset, Spinner, SubCommandScan1, SubCommandScan2};
+use super::{select_base_module, Address, Error, Offset, Spinner, SubCommandScan};
 
-impl SubCommandScan1 {
+impl SubCommandScan {
     pub fn init(self) -> Result<(), Error> {
         let Self {
-            ref file,
+            bin,
+            info,
             target: Address(target),
             depth,
             offset: Offset(offset),
@@ -16,84 +19,31 @@ impl SubCommandScan1 {
             dir,
         } = self;
 
-        if depth <= node {
-            println!("Error: depth must be greater than node. current depth({depth}), node({node}).")
-        }
-
-        let mut spinner = Spinner::start("Start loading cache...");
-        let mut ptrsx = PtrsxScanner::default();
-        ptrsx.load_pointer_map_file(file)?;
-        spinner.stop("cache loaded.");
-
-        let pages = select_base_module(&ptrsx.modules)?;
-        let mut spinner = Spinner::start("Start creating pointer maps...");
-        spinner.stop("Pointer map is created.");
-
-        let dir = dir.unwrap_or_default();
-
-        let mut spinner = Spinner::start("Start scanning pointer chain...");
-        pages.par_iter().try_for_each(|module| {
-            let name = Path::new(&module.name)
-                .file_name()
-                .and_then(|f| f.to_str())
-                .expect("unknown error");
-            let file = dir.join(format!("{name}.scandata"));
-            let file = OpenOptions::new()
-                .write(true)
-                .append(true)
-                .create_new(true)
-                .open(file)?;
-            #[rustfmt::skip]
-                let params = Params {
-                    depth, target, node, offset,
-                    writer: &mut BufWriter::new(file),
-                };
-            ptrsx.scanner_with_range(module.start..module.end, params)
-        })?;
-        spinner.stop("Pointer chain is scanned.");
-
-        Ok(())
-    }
-}
-
-impl SubCommandScan2 {
-    pub fn init(self) -> Result<(), Error> {
-        let Self {
-            ref file,
-            list: AddressList(ref list),
-            target: Address(target),
-            depth,
-            offset: Offset(offset),
-            node,
-            dir,
-        } = self;
         if depth <= node {
             return Err(format!("Error: depth must be greater than node. current depth({depth}), node({node}).").into());
         }
-        if depth > 32 {
-            return Err(format!("Error: MAX_DEPTH 32, current({depth})").into());
-        }
 
         let mut spinner = Spinner::start("Start loading cache...");
         let mut ptrsx = PtrsxScanner::default();
-        ptrsx.load_pointer_map_file(file)?;
+        let info = File::open(info)?;
+        ptrsx.load_modules_info_file(info)?;
+        let bin = File::open(bin)?;
+        ptrsx.load_pointer_map_file(bin)?;
         spinner.stop("cache loaded.");
-        let dir = dir.unwrap_or_default();
+
+        let modules = ptrsx.get_modules_info().cloned().collect::<Vec<_>>();
+        let modules = select_base_module(&modules)?;
 
         let mut spinner = Spinner::start("Start scanning pointer chain...");
-        let file = dir.join(format!("{target:#x}.scandata"));
+
+        let file = dir.unwrap_or_else(|| PathBuf::from(target.to_string()).with_extension("scandata"));
         let file = OpenOptions::new()
             .write(true)
             .append(true)
             .create_new(true)
             .open(file)?;
-        #[rustfmt::skip]
-        let params = Params {
-            depth, target, node, offset,
-            writer: &mut BufWriter::new(file),
-        };
-
-        ptrsx.scanner_with_address(list, params)?;
+        let param = Param { depth, target, node, offset };
+        ptrsx.pointer_chain_scanner(modules, param, file)?;
 
         spinner.stop("Pointer chain is scanned.");
 

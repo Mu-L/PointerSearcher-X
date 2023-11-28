@@ -23,8 +23,11 @@ pub struct DumpCommand {
     #[argh(option, short = 'p', description = "process id")]
     pub pid: Pid,
 
-    #[argh(option, short = 'f', description = "out filename")]
-    pub file: Option<PathBuf>,
+    #[argh(option, description = "modules info out filename")]
+    pub info: Option<PathBuf>,
+
+    #[argh(option, description = "binary data out filename")]
+    pub bin: Option<PathBuf>,
 
     #[argh(option, default = "true", description = "pointer align, default true")]
     pub align: bool,

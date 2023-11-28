@@ -20,11 +20,4 @@ pub struct Params {
     pub node: usize,
     pub rangel: usize,
     pub ranger: usize,
-    pub file_name: *const c_char,
-}
-
-#[repr(C)]
-pub struct AddressList {
-    pub len: usize,
-    pub data: *const usize,
 }

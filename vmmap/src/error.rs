@@ -1,4 +1,5 @@
 #[cfg(target_os = "macos")]
+#[derive(Debug)]
 pub enum Error {
     OpenProcess(machx::kern_return::kern_return_t),
     ReadMemory(machx::kern_return::kern_return_t),
@@ -6,6 +7,7 @@ pub enum Error {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
+#[derive(Debug)]
 pub enum Error {
     OpenProcess(std::io::Error),
     ReadMemory(std::io::Error),
@@ -13,6 +15,7 @@ pub enum Error {
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Debug)]
 pub enum Error {
     OpenProcess(windows_sys::Win32::Foundation::WIN32_ERROR),
     ReadMemory(windows_sys::Win32::Foundation::WIN32_ERROR),

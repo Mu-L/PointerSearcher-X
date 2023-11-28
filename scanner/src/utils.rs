@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     fmt::Display,
     io::{stdin, stdout, Write},
-    path::Path,
+    ops::Range,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -11,15 +11,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use ptrsx::Module;
 use terminal_size::{terminal_size, Height, Width};
 
-pub fn select_base_module(items: &[Module]) -> Result<Vec<Module>, super::Error> {
+pub fn select_base_module(items: &[(Range<usize>, String)]) -> Result<Vec<(Range<usize>, String)>, super::Error> {
     let words = items
         .iter()
-        .filter_map(|m| Path::new(&m.name).file_name())
         .enumerate()
-        .map(|(k, v)| format!("[\x1B[32m{k}\x1B[0m: {}] ", v.to_string_lossy()));
+        .map(|(k, (_, name))| format!("[\x1B[32m{k}\x1B[0m: {name}] "));
 
     let (width, _) = terminal_size().unwrap_or((Width(80), Height(160)));
     let width = width.0 as usize;
