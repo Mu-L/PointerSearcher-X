@@ -77,8 +77,8 @@ where
         .iter()
         .skip(idx)
         .copied()
-        .take_while(|&x| x <= max)
-        .min_by_key(|&x| (target.wrapping_sub(x) as isize).abs())
+        .take_while(|x| max.ge(x))
+        .min_by_key(|x| (x.wrapping_sub(target) as isize).abs())
         .is_some_and(|_| avec.len() >= node)
     {
         writer.write_all(itoa.format(target - base).as_bytes())?;
@@ -197,15 +197,16 @@ fn test_pointer_chain_scanner_s1() {
     }
 
     let writer = &mut Vec::with_capacity(128);
-    let params = WalkParams {
-        base: 0x104B18000,
-        depth: 4,
-        target: 0x125F04080,
-        node: 3,
-        offset: (0, 16),
-        points,
-        writer,
-    };
+    let params =
+        WalkParams {
+            base: 0x104B18000,
+            depth: 4,
+            target: 0x125F04080,
+            node: 3,
+            offset: (0, 16),
+            points,
+            writer,
+        };
 
     pointer_chain_scanner(&reverse, params).unwrap();
 
