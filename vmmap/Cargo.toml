@@ -1,12 +1,12 @@
 [package]
 name = "vmmap"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["kk <kekelanact@gmail.com>"]
 description = "Easy access to memory maps"
 keywords = ["proc_maps", "virtualquery", "process_memory"]
 license = "MIT"
-repository = "https://github.com/kekeimiku/PointerSearcher-X/tree/main/vmmap"
+repository = "https://github.com/kekeimiku/PointerSearcher-X/"
 readme = "README.md"
 
 [target.'cfg(windows)'.dependencies.windows-sys]

@@ -190,15 +190,14 @@ pub unsafe extern "C" fn scanner_pointer_chain(
     let param = ptrsx::Param { depth, target, node, offset: (rangel, ranger) };
 
     let binding = &*slice_from_raw_parts(modules.data, modules.len);
-    let modules = binding
+    let _modules = binding
         .iter()
         .map(|&Module { start, end, name }| {
             Ok((start..end, str::from_utf8(CStr::from_ptr(name).to_bytes())?.to_string()))
         })
         .collect::<Result<Vec<_>, Utf8Error>>();
-    let modules = try_result!(ptrsx, modules);
 
-    try_result!(ptrsx, scanner.pointer_chain_scanner(modules, param, file));
+    try_result!(ptrsx, scanner.pointer_chain_scanner(param, file));
 
     0
 }

@@ -5,7 +5,7 @@ use std::{
 
 use ptrsx::{Param, PtrsxScanner};
 
-use super::{select_base_module, Address, Error, Offset, Spinner, SubCommandScan};
+use super::{Address, Error, Offset, Spinner, SubCommandScan};
 
 impl SubCommandScan {
     pub fn init(self) -> Result<(), Error> {
@@ -31,9 +31,6 @@ impl SubCommandScan {
         ptrsx.load_pointer_map_file(bin)?;
         spinner.stop("cache loaded.");
 
-        let modules = ptrsx.get_modules_info().cloned().collect::<Vec<_>>();
-        let modules = select_base_module(&modules)?;
-
         let mut spinner = Spinner::start("Start scanning pointer chain...");
 
         let file = dir.unwrap_or_else(|| PathBuf::from(target.to_string()).with_extension("scandata"));
@@ -43,7 +40,7 @@ impl SubCommandScan {
             .create_new(true)
             .open(file)?;
         let param = Param { depth, target, node, offset };
-        ptrsx.pointer_chain_scanner(modules, param, file)?;
+        ptrsx.pointer_chain_scanner(param, file)?;
 
         spinner.stop("Pointer chain is scanned.");
 

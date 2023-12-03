@@ -65,7 +65,7 @@ impl Display for Error {
 pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[cfg(target_os = "macos")]
-#[inline(always)]
+#[inline]
 pub fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -> bool {
     if !page.is_read() || page.is_reserve() {
         return false;
@@ -90,7 +90,7 @@ pub fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -
 }
 
 #[cfg(target_os = "linux")]
-#[inline(always)]
+#[inline]
 pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
@@ -116,7 +116,7 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 }
 
 #[cfg(target_os = "android")]
-#[inline(always)]
+#[inline]
 pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
@@ -156,7 +156,7 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-#[inline(always)]
+#[inline]
 pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
@@ -181,7 +181,7 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 
 #[derive(Default)]
 pub struct PtrsxScanner {
-    modules: Vec<(Range<usize>, String)>,
+    index: RangeMap<usize, String>,
     forward: BTreeMap<usize, usize>,
     reverse: BTreeMap<usize, Vec<usize>>,
 }
@@ -378,34 +378,30 @@ where
     Ok(())
 }
 
-fn add_numbers_to_duplicates(modules: &mut [(usize, usize, String)]) {
-    use core::fmt::Write;
-    let mut counts = HashMap::with_capacity(modules.len());
-    for (_start, _end, name) in modules.iter_mut() {
-        let count = counts.entry(name.clone()).or_insert(1);
-        write!(name, "[{count}]").unwrap();
-        *count += 1;
-    }
-}
-
 impl PtrsxScanner {
+    #[cfg(target_family = "unix")]
+    const PREFIX: char = '/';
+    #[cfg(target_os = "windows")]
+    const PREFIX: char = '\\';
+
     pub fn create_pointer_map_file<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<(), Error> {
         let proc = Process::open(pid)?;
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
-        let mut modules = pages
+        let mut counts = HashMap::new();
+        let mut writer = BufWriter::new(info_w);
+        pages
             .iter()
             .flat_map(|m| {
-                let path = Path::new(m.name()?);
-                let name = path.file_name().and_then(|s| s.to_str())?.to_string();
+                use core::fmt::Write;
+                let mut name = m.name()?.rsplit_once(Self::PREFIX)?.1.to_string();
+                let count = counts.entry(name.clone()).or_insert(1);
+                write!(name, "[{}]", count).unwrap();
+                *count += 1;
                 Some((m.start(), m.end(), name))
             })
-            .collect::<Vec<_>>();
-        add_numbers_to_duplicates(&mut modules);
-        let mut writer = BufWriter::new(info_w);
-        modules
-            .iter()
             .try_for_each(|(start, end, name)| writer.write_fmt(format_args!("{start:x}-{end:x} {name}\n")))?;
+
         let writer = &mut BufWriter::new(bin_w);
         create_pointer_map_writer(&proc, &region, align, writer)
     }
@@ -436,7 +432,7 @@ impl PtrsxScanner {
         let contents = &mut String::with_capacity(0x10000);
         let mut reader = BufReader::new(reader);
         let _ = reader.read_to_string(contents)?;
-        self.modules = RegionIter::new(contents)
+        self.index = RegionIter::new(contents)
             .map(|Region { start, end, name }| (start..end, name.to_string()))
             .collect();
         Ok(())
@@ -446,18 +442,17 @@ impl PtrsxScanner {
         let proc = Process::open(pid)?;
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
-        let mut modules = pages
+        let mut counts = HashMap::new();
+        self.index = pages
             .iter()
             .flat_map(|m| {
-                let path = Path::new(m.name()?);
-                let name = path.file_name().and_then(|s| s.to_str())?.to_string();
-                Some((m.start(), m.end(), name))
+                use core::fmt::Write;
+                let mut name = m.name()?.rsplit_once(Self::PREFIX)?.1.to_string();
+                let count = counts.entry(name.clone()).or_insert(1);
+                write!(name, "[{}]", count).unwrap();
+                *count += 1;
+                Some((m.start()..m.end(), name))
             })
-            .collect::<Vec<_>>();
-        add_numbers_to_duplicates(&mut modules);
-        self.modules = modules
-            .into_iter()
-            .map(|(start, end, name)| (start..end, name))
             .collect();
         self.forward = create_pointer_map(&proc, &region, align)?;
         self.forward.iter().for_each(|(&k, &v)| {
@@ -466,42 +461,18 @@ impl PtrsxScanner {
         Ok(())
     }
 
-    pub fn get_modules_info(&self) -> impl Iterator<Item = &(Range<usize>, String)> {
-        self.modules.iter()
-    }
-
-    pub fn pointer_chain_scanner<W: Write>(
-        &mut self,
-        modules: Vec<(Range<usize>, String)>,
-        param: Param,
-        writer: W,
-    ) -> Result<()> {
-        let points = &modules
+    pub fn pointer_chain_scanner<W: Write>(&mut self, param: Param, writer: W) -> Result<()> {
+        let points = &self
+            .index
             .iter()
             .flat_map(|(Range { start, end }, _)| self.forward.range((Included(start), Included(end))))
             .map(|(&k, _)| k)
             .collect::<Vec<_>>();
-        let index = modules.into_iter().collect();
         let mut writer = BufWriter::new(writer);
-        unsafe {
-            self.scanner(
-                param,
-                points,
-                &index,
-                (1, (&mut ArrayVec::new_const(), &mut itoa::Buffer::new())),
-                &mut writer,
-            )
-        }
+        unsafe { self.scanner(param, points, (1, (&mut ArrayVec::new_const(), &mut itoa::Buffer::new())), &mut writer) }
     }
 
-    unsafe fn scanner<W>(
-        &self,
-        param: Param,
-        points: &[usize],
-        index: &RangeMap<usize, String>,
-        (lv, tmp): (usize, Tmp),
-        writer: &mut W,
-    ) -> Result<()>
+    unsafe fn scanner<W>(&self, param: Param, points: &[usize], (lv, tmp): (usize, Tmp), writer: &mut W) -> Result<()>
     where
         W: Write,
     {
@@ -521,7 +492,7 @@ impl PtrsxScanner {
             .min_by_key(|x| (x.wrapping_sub(target) as isize).abs())
             .is_some_and(|_| avec.len() >= node)
         {
-            if let Some((Range { start, end: _ }, name)) = index.get_key_value(&target) {
+            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(&target) {
                 writer.write_all(name.as_bytes())?;
                 writer.write_all(&[0x2B])?;
                 writer.write_all(itoa.format(target - start).as_bytes())?;
@@ -540,7 +511,6 @@ impl PtrsxScanner {
                     self.scanner(
                         Param { depth, target, node, offset: (lr, ur) },
                         points,
-                        index,
                         (lv + 1, (avec, itoa)),
                         writer,
                     )?;
