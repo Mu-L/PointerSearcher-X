@@ -4,6 +4,10 @@ Tutorial for PointerSearch-X
 
 What is the use of pointer chain scanning?
 
+> PointerSearch concept:
+> ASLR causes the program memory address to always be different when you start the program. The so-called "static" addresses are > > addresses relative to the beginning of the program code (BinaryFile). With a static address, once you find it, you're done, because the address of the loader (BinaryFile) is easy to find. Unfortunately, not all memory of interest are "static", for these either code hack(often referred to as ASM hack) is needed or a pointer chain is needed(to find this chain is often referred to as pointer search).
+> Pointer search is usually used to automatically find more complex pointer chains. For very simple pointer chains, only a debugger is needed to find them. Of course, pointer searches are often also useful in scenarios where a debugger cannot be used.
+
 Imagine a game is too difficult and you want to cheat. Each time before you start the game, you need to spend a few minutes performing a memory scan to find the address of the data;
 
 If the data you need is hidden, such as the coordinates of the character in the game, you may need more time to find it. Before that, you need to ask the enemy "please don't attack me".
