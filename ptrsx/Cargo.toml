@@ -7,14 +7,6 @@ edition = "2021"
 path = "../vmmap"
 default-features = false
 
-[dependencies.itoa]
-version = "1.0.9"
-default-features = false
-
-[dependencies.arrayvec]
-version = "0.7.4"
-default-features = false
-
 [dependencies.rangemap]
 version = "1.4.0"
 default-features = false

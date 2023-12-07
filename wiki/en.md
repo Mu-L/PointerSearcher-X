@@ -78,7 +78,7 @@ It will store the pointer chains that exist stably in the two scans into the `co
 
 We randomly find one to verify if it can be used.
 
-Execute the command `sudo ./dumper test --pid 9325 --chain "libhl.so+14208@1176@2280@48@648"`
+Execute the command `sudo ./dumper test --pid 9325 --chain "libhl.so[3]+14208@1176@2280@48@648"`
 
 Successfully obtained the address of the coin `0x70d7e298`
 

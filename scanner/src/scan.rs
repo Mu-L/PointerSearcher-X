@@ -39,7 +39,7 @@ impl SubCommandScan {
             .append(true)
             .create_new(true)
             .open(file)?;
-        let param = Param { depth, target, node, offset };
+        let param = Param { depth, target, node, range: offset };
         ptrsx.pointer_chain_scanner(param, file)?;
 
         spinner.stop("Pointer chain is scanned.");

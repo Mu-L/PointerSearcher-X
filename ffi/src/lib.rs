@@ -139,7 +139,7 @@ pub unsafe extern "C" fn scanner_pointer_chain(
             .open(file_name)
     );
 
-    let param = ptrsx::Param { depth, target, node, offset: (rangel, ranger) };
+    let param = ptrsx::Param { depth, target, node, range: (rangel, ranger) };
     let binding = &*slice_from_raw_parts(modules.data, modules.len);
     let modules = binding
         .iter()

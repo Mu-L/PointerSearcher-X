@@ -12,7 +12,6 @@ use std::{
     str::Lines,
 };
 
-use arrayvec::ArrayVec;
 use rangemap::RangeMap;
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
@@ -31,13 +30,6 @@ const DEFAULT_BUF_SIZE: usize = 0x1000;
 pub enum Error {
     Vmmap(vmmap::Error),
     Io(std::io::Error),
-    Other(String),
-}
-
-impl From<&'static str> for Error {
-    fn from(value: &'static str) -> Self {
-        Self::Other(value.to_string())
-    }
 }
 
 impl From<vmmap::Error> for Error {
@@ -56,7 +48,6 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Vmmap(err) => write!(f, "{err}"),
-            Error::Other(err) => write!(f, "{err}"),
             Error::Io(err) => write!(f, "{err}"),
         }
     }
@@ -190,34 +181,7 @@ pub struct Param {
     pub depth: usize,
     pub target: usize,
     pub node: usize,
-    pub offset: (usize, usize),
-}
-
-type Tmp<'a> = (&'a mut ArrayVec<isize, 32>, &'a mut itoa::Buffer);
-
-#[inline]
-unsafe fn binary_search_by<'a, T, F>(slice: &'a [T], mut f: F) -> Result<usize, usize>
-where
-    F: FnMut(&'a T) -> Ordering,
-{
-    let mut size = slice.len();
-    if size == 0 {
-        return Err(0);
-    }
-    let mut base = 0usize;
-    while size > 1 {
-        let half = size / 2;
-        let mid = base + half;
-        let cmp = f(slice.get_unchecked(mid));
-        base = if cmp == Ordering::Greater { base } else { mid };
-        size -= half;
-    }
-    let cmp: Ordering = f(slice.get_unchecked(base));
-    if cmp == Ordering::Equal {
-        Ok(base)
-    } else {
-        Err(base + (cmp == Ordering::Less) as usize)
-    }
+    pub range: (usize, usize),
 }
 
 struct Region<'a> {
@@ -248,7 +212,7 @@ impl<'a> Iterator for RegionIter<'a> {
     }
 }
 
-fn create_pointer_map<P, W>(proc: &P, region: &[(usize, usize)], is_align: bool, writer: &mut W) -> Result<(), Error>
+fn create_pointer_map<P, W>(proc: &P, region: &[(usize, usize)], is_align: bool, w: &mut W) -> Result<(), Error>
 where
     P: VirtualMemoryRead,
     W: Write,
@@ -276,8 +240,8 @@ where
                         .is_ok()
                     {
                         let key = start + off + k;
-                        writer.write_all(&key.to_le_bytes())?;
-                        writer.write_all(&value.to_le_bytes())?;
+                        w.write_all(&key.to_le_bytes())?;
+                        w.write_all(&value.to_le_bytes())?;
                     }
                 }
             }
@@ -302,8 +266,8 @@ where
                         .is_ok()
                     {
                         let key = start + off + k;
-                        writer.write_all(&key.to_le_bytes())?;
-                        writer.write_all(&value.to_le_bytes())?;
+                        w.write_all(&key.to_le_bytes())?;
+                        w.write_all(&value.to_le_bytes())?;
                     }
                 }
             }
@@ -324,21 +288,19 @@ impl PtrsxScanner {
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
         let mut counts = HashMap::new();
-        let mut writer = BufWriter::new(info_w);
+        let mut info_w = BufWriter::new(info_w);
         pages
             .iter()
             .flat_map(|m| {
                 use core::fmt::Write;
                 let mut name = m.name()?.rsplit_once(Self::PREFIX)?.1.to_string();
                 let count = counts.entry(name.clone()).or_insert(1);
-                write!(name, "[{}]", count).unwrap();
+                let _ = write!(name, "[{}]", count);
                 *count += 1;
                 Some((m.start(), m.end(), name))
             })
-            .try_for_each(|(start, end, name)| writer.write_fmt(format_args!("{start:x}-{end:x} {name}\n")))?;
-
-        let writer = &mut BufWriter::new(bin_w);
-        create_pointer_map(&proc, &region, align, writer)
+            .try_for_each(|(start, end, name)| writeln!(info_w, "{start:x}-{end:x} {name}"))?;
+        create_pointer_map(&proc, &region, align, &mut BufWriter::new(bin_w))
     }
 
     pub fn load_pointer_map<R: Read>(&mut self, reader: R) -> Result<()> {
@@ -367,9 +329,9 @@ impl PtrsxScanner {
         self.index.extend(modules)
     }
 
-    pub fn load_modules_info<R: Read>(&mut self, reader: R) -> Result<()> {
-        let contents = &mut String::with_capacity(0x10000);
-        let mut reader = BufReader::new(reader);
+    pub fn load_modules_info<R: Read>(&mut self, r: R) -> Result<()> {
+        let contents = &mut String::with_capacity(0x80000);
+        let mut reader = BufReader::new(r);
         let _ = reader.read_to_string(contents)?;
         self.index = RegionIter::new(contents)
             .map(|Region { start, end, name }| (start..end, name.to_string()))
@@ -377,28 +339,26 @@ impl PtrsxScanner {
         Ok(())
     }
 
-    pub fn pointer_chain_scanner<W: Write>(&mut self, param: Param, writer: W) -> Result<()> {
+    pub fn pointer_chain_scanner<W: Write>(&mut self, param: Param, w: W) -> Result<()> {
         let points = &self
             .index
             .iter()
             .flat_map(|(Range { start, end }, _)| self.forward.range((Included(start), Included(end))))
             .map(|(&k, _)| k)
             .collect::<Vec<_>>();
-        let mut writer = BufWriter::new(writer);
-        unsafe { self.scanner(param, points, (1, (&mut ArrayVec::new_const(), &mut itoa::Buffer::new())), &mut writer) }
+        self.scanner(param, points, 1, &mut Vec::with_capacity(0x100), &mut BufWriter::new(w))
     }
 
-    unsafe fn scanner<W>(&self, param: Param, points: &[usize], (lv, tmp): (usize, Tmp), writer: &mut W) -> Result<()>
+    fn scanner<W>(&self, param: Param, points: &[usize], lv: usize, chain: &mut Vec<isize>, w: &mut W) -> Result<()>
     where
         W: Write,
     {
-        let Param { depth, target, node, offset: (lr, ur) } = param;
-        let (avec, itoa) = tmp;
+        let Param { depth, target, node, range } = param;
 
-        let min = target.saturating_sub(ur);
-        let max = target.saturating_add(lr);
+        let min = target.saturating_sub(range.1);
+        let max = target.saturating_add(range.0);
 
-        let idx = binary_search_by(points, |p| p.cmp(&min)).unwrap_or_else(|x| x);
+        let idx = points.binary_search(&min).unwrap_or_else(|x| x);
 
         if points
             .iter()
@@ -406,32 +366,22 @@ impl PtrsxScanner {
             .copied()
             .take_while(|x| max.ge(x))
             .min_by_key(|x| (x.wrapping_sub(target) as isize).abs())
-            .is_some_and(|_| avec.len() >= node)
+            .is_some_and(|_| chain.len() >= node)
         {
             if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(&target) {
-                writer.write_all(name.as_bytes())?;
-                writer.write_all(&[0x2B])?;
-                writer.write_all(itoa.format(target - start).as_bytes())?;
-                for &off in avec.iter().rev() {
-                    writer.write_all(&[0x40])?;
-                    writer.write_all(itoa.format(off).as_bytes())?;
-                }
-                writer.write_all(&[0xA])?;
+                write!(w, "{name}+{}", target - start)?;
+                chain.iter().rev().try_for_each(|o| write!(w, "@{o}"))?;
+                writeln!(w)?;
             }
         }
 
         if lv <= depth {
             for (&k, vec) in self.reverse.range((Included(min), Included(max))) {
-                avec.push_unchecked(target.wrapping_sub(k) as isize);
-                for &target in vec {
-                    self.scanner(
-                        Param { depth, target, node, offset: (lr, ur) },
-                        points,
-                        (lv + 1, (avec, itoa)),
-                        writer,
-                    )?;
-                }
-                avec.pop();
+                chain.push(target.wrapping_sub(k) as isize);
+                vec.iter().try_for_each(|&target| {
+                    self.scanner(Param { depth, target, node, range }, points, lv + 1, chain, w)
+                })?;
+                chain.pop();
             }
         }
 
