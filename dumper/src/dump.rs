@@ -18,7 +18,7 @@ impl DumpCommand {
             .create_new(true)
             .open(info)?;
         let bin = OpenOptions::new().write(true).append(true).create_new(true).open(bin)?;
-        ptrsx.create_pointer_map_file(pid, align, info, bin)?;
+        ptrsx.create_pointer_map(pid, align, info, bin)?;
         spinner.stop("Dump completed.");
 
         Ok(())

@@ -248,72 +248,7 @@ impl<'a> Iterator for RegionIter<'a> {
     }
 }
 
-pub fn create_pointer_map<P>(
-    proc: &P,
-    region: &[(usize, usize)],
-    is_align: bool,
-) -> Result<BTreeMap<usize, usize>, Error>
-where
-    P: VirtualMemoryRead,
-{
-    let mut buf = [0; DEFAULT_BUF_SIZE];
-    let mut map = BTreeMap::new();
-
-    if is_align {
-        for &(start, size) in region {
-            for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
-                let size = proc.read_at(buf.as_mut_slice(), start + off)?;
-                for (k, buf) in buf[..size].windows(PTRSIZE).enumerate().step_by(PTRSIZE) {
-                    let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
-                    if region
-                        .binary_search_by(|&(start, size)| {
-                            if (start..start + size).contains(&value) {
-                                Ordering::Equal
-                            } else {
-                                start.cmp(&value)
-                            }
-                        })
-                        .is_ok()
-                    {
-                        let key = start + off + k;
-                        map.insert(key, value);
-                    }
-                }
-            }
-        }
-    } else {
-        for &(start, size) in region {
-            for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
-                let size = proc.read_at(buf.as_mut_slice(), start + off)?;
-                for (k, buf) in buf[..size].windows(PTRSIZE).enumerate() {
-                    let value = usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) });
-                    if region
-                        .binary_search_by(|&(start, size)| {
-                            if (start..start + size).contains(&value) {
-                                Ordering::Equal
-                            } else {
-                                start.cmp(&value)
-                            }
-                        })
-                        .is_ok()
-                    {
-                        let key = start + off + k;
-                        map.insert(key, value);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(map)
-}
-
-fn create_pointer_map_writer<P, W>(
-    proc: &P,
-    region: &[(usize, usize)],
-    is_align: bool,
-    writer: &mut W,
-) -> Result<(), Error>
+fn create_pointer_map<P, W>(proc: &P, region: &[(usize, usize)], is_align: bool, writer: &mut W) -> Result<(), Error>
 where
     P: VirtualMemoryRead,
     W: Write,
@@ -384,7 +319,7 @@ impl PtrsxScanner {
     #[cfg(target_os = "windows")]
     const PREFIX: char = '\\';
 
-    pub fn create_pointer_map_file<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<(), Error> {
+    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<(), Error> {
         let proc = Process::open(pid)?;
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
@@ -403,10 +338,10 @@ impl PtrsxScanner {
             .try_for_each(|(start, end, name)| writer.write_fmt(format_args!("{start:x}-{end:x} {name}\n")))?;
 
         let writer = &mut BufWriter::new(bin_w);
-        create_pointer_map_writer(&proc, &region, align, writer)
+        create_pointer_map(&proc, &region, align, writer)
     }
 
-    pub fn load_pointer_map_file<R: Read>(&mut self, reader: R) -> Result<()> {
+    pub fn load_pointer_map<R: Read>(&mut self, reader: R) -> Result<()> {
         let mut buf = vec![0; PTRSIZE * 0x10000];
         let mut cursor = Cursor::new(reader);
         loop {
@@ -428,36 +363,17 @@ impl PtrsxScanner {
         Ok(())
     }
 
-    pub fn load_modules_info_file<R: Read>(&mut self, reader: R) -> Result<()> {
+    pub fn set_modules(&mut self, modules: Vec<(Range<usize>, String)>) {
+        self.index.extend(modules)
+    }
+
+    pub fn load_modules_info<R: Read>(&mut self, reader: R) -> Result<()> {
         let contents = &mut String::with_capacity(0x10000);
         let mut reader = BufReader::new(reader);
         let _ = reader.read_to_string(contents)?;
         self.index = RegionIter::new(contents)
             .map(|Region { start, end, name }| (start..end, name.to_string()))
             .collect();
-        Ok(())
-    }
-
-    pub fn create_pointer_map(&mut self, pid: Pid, align: bool) -> Result<()> {
-        let proc = Process::open(pid)?;
-        let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
-        let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
-        let mut counts = HashMap::new();
-        self.index = pages
-            .iter()
-            .flat_map(|m| {
-                use core::fmt::Write;
-                let mut name = m.name()?.rsplit_once(Self::PREFIX)?.1.to_string();
-                let count = counts.entry(name.clone()).or_insert(1);
-                write!(name, "[{}]", count).unwrap();
-                *count += 1;
-                Some((m.start()..m.end(), name))
-            })
-            .collect();
-        self.forward = create_pointer_map(&proc, &region, align)?;
-        self.forward.iter().for_each(|(&k, &v)| {
-            self.reverse.entry(v).or_default().push(k);
-        });
         Ok(())
     }
 

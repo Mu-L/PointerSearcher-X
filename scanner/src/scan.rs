@@ -26,9 +26,9 @@ impl SubCommandScan {
         let mut spinner = Spinner::start("Start loading cache...");
         let mut ptrsx = PtrsxScanner::default();
         let info = File::open(info)?;
-        ptrsx.load_modules_info_file(info)?;
+        ptrsx.load_modules_info(info)?;
         let bin = File::open(bin)?;
-        ptrsx.load_pointer_map_file(bin)?;
+        ptrsx.load_pointer_map(bin)?;
         spinner.stop("cache loaded.");
 
         let mut spinner = Spinner::start("Start scanning pointer chain...");
