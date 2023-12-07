@@ -47,44 +47,22 @@ pub struct Commands {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 pub enum CommandEnum {
-    Scan1(SubCommandScan1),
-    Scan2(SubCommandScan2),
+    Scan(SubCommandScan),
     Diff(SubCommandDiff),
 }
 
 #[derive(FromArgs)]
-#[argh(
-    subcommand,
-    name = "s1",
-    description = "Scan mode 1, select some modules to set as base addresses."
-)]
-pub struct SubCommandScan1 {
-    #[argh(option, short = 'f', description = "dump file path")]
-    pub file: PathBuf,
+#[argh(subcommand, name = "scan", description = "select some modules to set as base addresses.")]
+pub struct SubCommandScan {
+    #[argh(option, description = "binary file path")]
+    pub bin: PathBuf,
+    #[argh(option, description = "info file path")]
+    pub info: PathBuf,
     #[argh(option, short = 't', description = "target address")]
     pub target: Address,
-    #[argh(option, default = "7", short = 'd', description = "depth default 7")]
+    #[argh(option, default = "4", short = 'd', description = "depth default 4")]
     pub depth: usize,
-    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset default 0:600")]
-    pub offset: Offset,
-    #[argh(option, default = "3", short = 'n', description = "node default 3")]
-    pub node: usize,
-    #[argh(option, description = "out dir")]
-    pub dir: Option<PathBuf>,
-}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "s2", description = "Scan mode 2, set base address list.")]
-pub struct SubCommandScan2 {
-    #[argh(option, short = 'f', description = "dump file path")]
-    pub file: PathBuf,
-    #[argh(option, short = 'l', description = "address list")]
-    pub list: AddressList,
-    #[argh(option, short = 't', description = "target address")]
-    pub target: Address,
-    #[argh(option, default = "7", short = 'd', description = "depth depth 7")]
-    pub depth: usize,
-    #[argh(option, default = "Offset((0, 600))", short = 'o', description = "offset default 0:600")]
+    #[argh(option, default = "Offset((0, 4000))", short = 'o', description = "offset default 0:4000")]
     pub offset: Offset,
     #[argh(option, default = "1", short = 'n', description = "node default 1")]
     pub node: usize,
@@ -99,9 +77,9 @@ pub struct SubCommandScan2 {
     description = "Compare and get the intersecting parts of two .scandata files."
 )]
 pub struct SubCommandDiff {
-    #[argh(option, description = "file1 path")]
+    #[argh(option, description = "file1 name")]
     pub f1: PathBuf,
-    #[argh(option, description = "file2 path")]
+    #[argh(option, description = "file2 name")]
     pub f2: PathBuf,
     #[argh(option, description = "out file name")]
     pub out: Option<PathBuf>,

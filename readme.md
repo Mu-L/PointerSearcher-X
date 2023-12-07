@@ -44,7 +44,7 @@ https://github.com/scanmem/scanmem/issues/431
 
 https://github.com/korcankaraokcu/PINCE/issues/15
 
-If you want to incorporate PointerSearcher-X into your application, it's very easy. Its permissive MIT-style license won't burden you. See the [API reference](https://github.com/kekeimiku/PointerSearcher-X/blob/main/ffi/ptrsx.h) for details.
+If you want to incorporate PointerSearcher-X into your application, it's very easy. Its permissive MIT-style license won't burden you. See the [C API](https://github.com/kekeimiku/PointerSearcher-X/blob/main/ffi/ptrsx.h) for details.
 
 ## Disclaimer
 
