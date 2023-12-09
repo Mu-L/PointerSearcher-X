@@ -2,17 +2,16 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, HashMap},
+    collections::{btree_map, BTreeMap, BTreeSet, HashMap},
     fmt::Display,
     fs::File,
     io::{BufReader, BufWriter, Cursor, Read, Write},
     mem,
-    ops::{Bound::Included, Range},
+    ops::{Bound, Range},
     path::Path,
     str::Lines,
 };
 
-use rangemap::RangeMap;
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
 const PTRSIZE: usize = mem::size_of::<usize>();
@@ -26,7 +25,6 @@ const DEFAULT_BUF_SIZE: usize = 0x40000;
 #[cfg(any(target_os = "windows", all(target_os = "macos", target_arch = "x86_64"),))]
 const DEFAULT_BUF_SIZE: usize = 0x1000;
 
-#[derive(Debug)]
 pub enum Error {
     Vmmap(vmmap::Error),
     Io(std::io::Error),
@@ -57,7 +55,7 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 
 #[cfg(target_os = "macos")]
 #[inline]
-pub fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -> bool {
+fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -> bool {
     if !page.is_read() || page.is_reserve() {
         return false;
     }
@@ -82,7 +80,7 @@ pub fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -
 
 #[cfg(target_os = "linux")]
 #[inline]
-pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
     }
@@ -108,7 +106,7 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 
 #[cfg(target_os = "android")]
 #[inline]
-pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
     }
@@ -148,7 +146,7 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 
 #[cfg(target_os = "windows")]
 #[inline]
-pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     if !page.is_read() {
         return false;
     }
@@ -170,36 +168,121 @@ pub fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
         .is_ok_and(|_| [0x4d, 0x5a].eq(&buf[0..2]))
 }
 
+#[derive(Clone)]
+struct RangeWrapper<T> {
+    inner: Range<T>,
+}
+
+impl<T> RangeWrapper<T> {
+    const fn new(range: Range<T>) -> RangeWrapper<T> {
+        RangeWrapper { inner: range }
+    }
+}
+
+impl<T: PartialEq> PartialEq for RangeWrapper<T> {
+    fn eq(&self, other: &RangeWrapper<T>) -> bool {
+        self.inner.start == other.inner.start
+    }
+}
+
+impl<T: Eq> Eq for RangeWrapper<T> {}
+
+impl<T: Ord> Ord for RangeWrapper<T> {
+    fn cmp(&self, other: &RangeWrapper<T>) -> Ordering {
+        self.inner.start.cmp(&other.inner.start)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for RangeWrapper<T> {
+    fn partial_cmp(&self, other: &RangeWrapper<T>) -> Option<Ordering> {
+        self.inner.start.partial_cmp(&other.inner.start)
+    }
+}
+
 #[derive(Default)]
-pub struct PtrsxScanner {
-    index: RangeMap<usize, String>,
-    forward: BTreeMap<usize, usize>,
-    reverse: BTreeMap<usize, Vec<usize>>,
+struct RangeMap<K, V> {
+    inner: BTreeMap<RangeWrapper<K>, V>,
 }
 
-pub struct Param {
-    pub depth: usize,
-    pub target: usize,
-    pub node: usize,
-    pub range: (usize, usize),
+impl<K, V> RangeMap<K, V> {
+    fn iter(&self) -> Iter<'_, K, V> {
+        Iter { inner: self.inner.iter() }
+    }
+
+    fn clear(&mut self) {
+        self.inner.clear()
+    }
 }
 
-struct Region<'a> {
+impl<K, V> RangeMap<K, V>
+where
+    K: Ord + Copy,
+{
+    fn get_key_value(&self, key: K) -> Option<(&Range<K>, &V)> {
+        let start = RangeWrapper::new(key..key);
+        self.inner
+            .range((Bound::Unbounded, Bound::Included(start)))
+            .next_back()
+            .filter(|(range, _)| range.inner.contains(&key))
+            .map(|(range, value)| (&range.inner, value))
+    }
+}
+
+impl<K, V> RangeMap<K, V>
+where
+    K: Ord + Copy,
+    V: Eq + Clone,
+{
+    fn insert(&mut self, range: Range<K>, value: V) {
+        assert!(range.start < range.end);
+        self.inner.insert(RangeWrapper::new(range), value);
+    }
+}
+
+struct Iter<'a, K, V> {
+    inner: btree_map::Iter<'a, RangeWrapper<K>, V>,
+}
+
+impl<'a, K, V> Iterator for Iter<'a, K, V> {
+    type Item = (&'a Range<K>, &'a V);
+
+    fn next(&mut self) -> Option<(&'a Range<K>, &'a V)> {
+        self.inner.next().map(|(by_start, v)| (&by_start.inner, v))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<K, V> Extend<(Range<K>, V)> for RangeMap<K, V>
+where
+    K: Ord + Copy,
+    V: Eq + Clone,
+{
+    fn extend<T: IntoIterator<Item = (Range<K>, V)>>(&mut self, iter: T) {
+        iter.into_iter().for_each(move |(k, v)| {
+            self.insert(k, v);
+        })
+    }
+}
+
+struct Info<'a> {
     start: usize,
     end: usize,
     name: &'a str,
 }
 
-struct RegionIter<'a>(Lines<'a>);
+struct InfoIter<'a>(Lines<'a>);
 
-impl<'a> RegionIter<'a> {
+impl<'a> InfoIter<'a> {
     fn new(contents: &'a str) -> Self {
         Self(contents.lines())
     }
 }
 
-impl<'a> Iterator for RegionIter<'a> {
-    type Item = Region<'a>;
+impl<'a> Iterator for InfoIter<'a> {
+    type Item = Info<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let line = self.0.next()?;
@@ -208,7 +291,7 @@ impl<'a> Iterator for RegionIter<'a> {
         let start = usize::from_str_radix(range_split.next()?, 16).ok()?;
         let end = usize::from_str_radix(range_split.next()?, 16).ok()?;
         let name = split.next()?.trim();
-        Some(Region { start, end, name })
+        Some(Info { start, end, name })
     }
 }
 
@@ -277,13 +360,27 @@ where
     Ok(())
 }
 
+#[derive(Default)]
+pub struct PtrsxScanner {
+    index: RangeMap<usize, String>,
+    forward: BTreeSet<usize>,
+    reverse: BTreeMap<usize, Vec<usize>>,
+}
+
+pub struct Param {
+    pub depth: usize,
+    pub target: usize,
+    pub node: usize,
+    pub range: (usize, usize),
+}
+
 impl PtrsxScanner {
     #[cfg(target_family = "unix")]
     const PREFIX: char = '/';
     #[cfg(target_os = "windows")]
     const PREFIX: char = '\\';
 
-    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<(), Error> {
+    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<()> {
         let proc = Process::open(pid)?;
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
         let region = pages.iter().map(|m| (m.start(), m.size())).collect::<Vec<_>>();
@@ -316,26 +413,20 @@ impl PtrsxScanner {
                     let (key, value) = chuks.split_at_unchecked(PTRSIZE);
                     (usize::from_le_bytes(*(key.as_ptr().cast())), usize::from_le_bytes(*(value.as_ptr().cast())))
                 };
-                self.forward.insert(key, value);
+                if self.forward.insert(key) {
+                    self.reverse.entry(value).or_default().push(key);
+                }
             }
         }
-        self.forward.iter().for_each(|(&k, &v)| {
-            self.reverse.entry(v).or_default().push(k);
-        });
         Ok(())
-    }
-
-    pub fn set_modules(&mut self, modules: Vec<(Range<usize>, String)>) {
-        self.index.extend(modules)
     }
 
     pub fn load_modules_info<R: Read>(&mut self, r: R) -> Result<()> {
         let contents = &mut String::with_capacity(0x80000);
         let mut reader = BufReader::new(r);
         let _ = reader.read_to_string(contents)?;
-        self.index = RegionIter::new(contents)
-            .map(|Region { start, end, name }| (start..end, name.to_string()))
-            .collect();
+        self.index
+            .extend(InfoIter::new(contents).map(|Info { start, end, name }| (start..end, name.to_string())));
         Ok(())
     }
 
@@ -343,8 +434,8 @@ impl PtrsxScanner {
         let points = &self
             .index
             .iter()
-            .flat_map(|(Range { start, end }, _)| self.forward.range((Included(start), Included(end))))
-            .map(|(&k, _)| k)
+            .flat_map(|(Range { start, end }, _)| self.forward.range((Bound::Included(start), Bound::Included(end))))
+            .copied()
             .collect::<Vec<_>>();
         self.scanner(param, points, 1, &mut Vec::with_capacity(0x100), &mut BufWriter::new(w))
     }
@@ -368,7 +459,7 @@ impl PtrsxScanner {
             .min_by_key(|x| (x.wrapping_sub(target) as isize).abs())
             .is_some_and(|_| chain.len() >= node)
         {
-            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(&target) {
+            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(target) {
                 write!(w, "{name}+{}", target - start)?;
                 chain.iter().rev().try_for_each(|o| write!(w, "@{o}"))?;
                 writeln!(w)?;
@@ -376,7 +467,7 @@ impl PtrsxScanner {
         }
 
         if lv <= depth {
-            for (&k, vec) in self.reverse.range((Included(min), Included(max))) {
+            for (&k, vec) in self.reverse.range((Bound::Included(min), Bound::Included(max))) {
                 chain.push(target.wrapping_sub(k) as isize);
                 vec.iter().try_for_each(|&target| {
                     self.scanner(Param { depth, target, node, range }, points, lv + 1, chain, w)
@@ -386,5 +477,18 @@ impl PtrsxScanner {
         }
 
         Ok(())
+    }
+
+    pub fn set_modules<I>(&mut self, i: I)
+    where
+        I: Iterator<Item = (Range<usize>, String)>,
+    {
+        self.index.extend(i)
+    }
+
+    pub fn reset(&mut self) {
+        self.index.clear();
+        self.forward.clear();
+        self.reverse.clear();
     }
 }

@@ -149,7 +149,7 @@ pub unsafe extern "C" fn scanner_pointer_chain(
         .collect::<Result<Vec<_>, Utf8Error>>();
 
     let modules = try_result!(ptrsx, modules);
-    scanner.set_modules(modules);
+    scanner.set_modules(modules.into_iter());
 
     try_result!(ptrsx, scanner.pointer_chain_scanner(param, file));
 

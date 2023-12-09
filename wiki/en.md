@@ -48,7 +48,7 @@ run scanning program
 
 `-t/--target` specifies the target address.
 
-`-d/--depth` represents the maximum depth of the pointer chain, currently only up to 14.
+`-d/--depth` represents the maximum depth of the pointer chain, maximum support `2^64`.
 
 `-o/--offset` represents the offset range. It can support up to -2^64:+2^64.
 
