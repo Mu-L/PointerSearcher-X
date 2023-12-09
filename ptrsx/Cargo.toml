@@ -6,7 +6,3 @@ edition = "2021"
 [dependencies.vmmap]
 path = "../vmmap"
 default-features = false
-
-[dependencies.rangemap]
-version = "1.4.0"
-default-features = false

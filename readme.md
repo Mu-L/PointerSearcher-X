@@ -36,6 +36,10 @@ It contains three tools:
 
 - [ ] x86_64-darwin
 
+## How to use?
+
+https://github.com/kekeimiku/PointerSearcher-X/blob/main/wiki/en.md
+
 ## About
 
 It was only intended to solve the following two problems, but has now been extended to other platforms.

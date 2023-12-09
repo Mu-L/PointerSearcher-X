@@ -48,7 +48,7 @@ run scanning program
 
 `-t/--target` specifies the target address.
 
-`-d/--depth` represents the maximum depth of the pointer chain, currently only up to 14.
+`-d/--depth` represents the maximum depth of the pointer chain, maximum support `2^64`.
 
 `-o/--offset` represents the offset range. It can support up to -2^64:+2^64.
 
@@ -91,3 +91,21 @@ Then we can copy this address to [PINCE](https://github.com/korcankaraokcu/PINCE
 ![img10](img/10.png)
 
 ![img11](img/11.png)
+
+# TL;DR
+
+While writing this tutorial I forgot which version of the game I had.
+
+If you want to give it a try you can try `Linux x86_64 DeadCells v34 [2023-06-20 - ffcb38d13 - 15 - Steam]`
+
+Set `depth/d` 6 `offset/o` 0:900
+
+> In game coin data: verify pointer chain `libhl.so[3]+14208@488@888@192@232@136@72`
+
+![img12](img/12.png)
+
+Other game: `Android arm64-v8a 9you-SoulKnight 5.4.7.9`
+
+Set `depth/d` 4 `offset/o` 0:3000
+
+> In game coin data: verify pointer chain `libil2cpp.so[3]+7806384@184@576@32`

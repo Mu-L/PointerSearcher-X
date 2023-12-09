@@ -1,6 +1,6 @@
 [package]
 name = "scanner"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 
 [dependencies.ptrsx]
@@ -9,8 +9,4 @@ default-features = false
 
 [dependencies.argh]
 version = "0.1.12"
-default-features = false
-
-[dependencies.terminal_size]
-version = "0.3.0"
 default-features = false

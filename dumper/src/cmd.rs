@@ -45,7 +45,7 @@ pub struct ChainCommand {
     #[argh(option, short = 'w', description = "write bytes")]
     pub write: Option<WVecU8>,
 
-    #[argh(option, short = 'r', description = "show bytes")]
+    #[argh(option, short = 'r', description = "read bytes")]
     pub read: Option<usize>,
 }
 
@@ -53,18 +53,11 @@ pub struct WVecU8(pub Vec<u8>);
 
 impl FromArgValue for WVecU8 {
     fn from_arg_value(value: &str) -> Result<Self, String> {
-        let content = get_content_between_parentheses(value.trim()).ok_or(format!("parse command error: {value}"))?;
-        let bytes = content
-            .split(',')
+        let parts = value.split(['[', ']', ',', ' ']).filter(|x| !x.is_empty());
+        let bytes = parts
             .map(|s| u8::from_str_radix(s.trim().trim_start_matches("0x"), 16))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|_| "parse bytes error")?;
         Ok(Self(bytes))
     }
-}
-
-fn get_content_between_parentheses(value: &str) -> Option<&str> {
-    let start_index = value.find('[')?;
-    let end_index = value[start_index + 1..].find(']').map(|i| start_index + 1 + i)?;
-    Some(&value[start_index + 1..end_index])
 }
