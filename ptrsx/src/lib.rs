@@ -1,8 +1,6 @@
-#![feature(slice_split_at_unchecked)]
-
 use std::{
     cmp::Ordering,
-    collections::{btree_map, BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Display,
     fs::File,
     io::{BufReader, BufWriter, Cursor, Read, Write},
@@ -168,20 +166,11 @@ fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
         .is_ok_and(|_| [0x4d, 0x5a].eq(&buf[0..2]))
 }
 
-#[derive(Clone)]
-struct RangeWrapper<T> {
-    inner: Range<T>,
-}
-
-impl<T> RangeWrapper<T> {
-    const fn new(range: Range<T>) -> RangeWrapper<T> {
-        RangeWrapper { inner: range }
-    }
-}
+struct RangeWrapper<T>(Range<T>);
 
 impl<T: PartialEq> PartialEq for RangeWrapper<T> {
     fn eq(&self, other: &RangeWrapper<T>) -> bool {
-        self.inner.start == other.inner.start
+        self.0.start == other.0.start
     }
 }
 
@@ -189,42 +178,26 @@ impl<T: Eq> Eq for RangeWrapper<T> {}
 
 impl<T: Ord> Ord for RangeWrapper<T> {
     fn cmp(&self, other: &RangeWrapper<T>) -> Ordering {
-        self.inner.start.cmp(&other.inner.start)
+        self.0.start.cmp(&other.0.start)
     }
 }
 
 impl<T: PartialOrd> PartialOrd for RangeWrapper<T> {
     fn partial_cmp(&self, other: &RangeWrapper<T>) -> Option<Ordering> {
-        self.inner.start.partial_cmp(&other.inner.start)
+        self.0.start.partial_cmp(&other.0.start)
     }
 }
 
 #[derive(Default)]
-struct RangeMap<K, V> {
-    inner: BTreeMap<RangeWrapper<K>, V>,
-}
+struct RangeMap<K, V>(BTreeMap<RangeWrapper<K>, V>);
 
 impl<K, V> RangeMap<K, V> {
-    fn iter(&self) -> Iter<'_, K, V> {
-        Iter { inner: self.inner.iter() }
+    fn iter(&self) -> impl Iterator<Item = (&Range<K>, &V)> {
+        self.0.iter().map(|(k, v)| (&k.0, v))
     }
 
     fn clear(&mut self) {
-        self.inner.clear()
-    }
-}
-
-impl<K, V> RangeMap<K, V>
-where
-    K: Ord + Copy,
-{
-    fn get_key_value(&self, key: K) -> Option<(&Range<K>, &V)> {
-        let start = RangeWrapper::new(key..key);
-        self.inner
-            .range((Bound::Unbounded, Bound::Included(start)))
-            .next_back()
-            .filter(|(range, _)| range.inner.contains(&key))
-            .map(|(range, value)| (&range.inner, value))
+        self.0.clear()
     }
 }
 
@@ -234,24 +207,22 @@ where
     V: Eq + Clone,
 {
     fn insert(&mut self, range: Range<K>, value: V) {
-        assert!(range.start < range.end);
-        self.inner.insert(RangeWrapper::new(range), value);
+        assert!(range.start <= range.end);
+        self.0.insert(RangeWrapper(range), value);
     }
 }
 
-struct Iter<'a, K, V> {
-    inner: btree_map::Iter<'a, RangeWrapper<K>, V>,
-}
-
-impl<'a, K, V> Iterator for Iter<'a, K, V> {
-    type Item = (&'a Range<K>, &'a V);
-
-    fn next(&mut self) -> Option<(&'a Range<K>, &'a V)> {
-        self.inner.next().map(|(by_start, v)| (&by_start.inner, v))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
+impl<K, V> RangeMap<K, V>
+where
+    K: Ord + Copy,
+{
+    fn get_key_value(&self, point: K) -> Option<(&Range<K>, &V)> {
+        let start = RangeWrapper(point..point);
+        self.0
+            .range((Bound::Unbounded, Bound::Included(start)))
+            .next_back()
+            .filter(|(range, _)| range.0.contains(&point))
+            .map(|(range, value)| (&range.0, value))
     }
 }
 
@@ -310,7 +281,7 @@ where
                     .windows(PTRSIZE)
                     .enumerate()
                     .step_by(PTRSIZE)
-                    .map(|(k, buf)| (k, usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) })))
+                    .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
                 {
                     if region
                         .binary_search_by(|&(start, size)| {
@@ -336,7 +307,7 @@ where
                 for (k, value) in buf[..size]
                     .windows(PTRSIZE)
                     .enumerate()
-                    .map(|(k, buf)| (k, usize::from_le_bytes(unsafe { *(buf.as_ptr().cast()) })))
+                    .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
                 {
                     if region
                         .binary_search_by(|&(start, size)| {
@@ -409,10 +380,9 @@ impl PtrsxScanner {
                 break;
             }
             for chuks in buf[..size].chunks_exact(PTRSIZE * 2) {
-                let (key, value) = unsafe {
-                    let (key, value) = chuks.split_at_unchecked(PTRSIZE);
-                    (usize::from_le_bytes(*(key.as_ptr().cast())), usize::from_le_bytes(*(value.as_ptr().cast())))
-                };
+                let (key, value) = chuks.split_at(PTRSIZE);
+                let (key, value) =
+                    (usize::from_le_bytes(key.try_into().unwrap()), usize::from_le_bytes(value.try_into().unwrap()));
                 if self.forward.insert(key) {
                     self.reverse.entry(value).or_default().push(key);
                 }
@@ -437,7 +407,7 @@ impl PtrsxScanner {
             .flat_map(|(Range { start, end }, _)| self.forward.range((Bound::Included(start), Bound::Included(end))))
             .copied()
             .collect::<Vec<_>>();
-        self.scanner(param, points, 1, &mut Vec::with_capacity(0x100), &mut BufWriter::new(w))
+        self.scanner(param, points, 1, &mut Vec::with_capacity(0x200), &mut BufWriter::new(w))
     }
 
     fn scanner<W>(&self, param: Param, points: &[usize], lv: usize, chain: &mut Vec<isize>, w: &mut W) -> Result<()>
@@ -490,5 +460,14 @@ impl PtrsxScanner {
         self.index.clear();
         self.forward.clear();
         self.reverse.clear();
+    }
+
+    pub fn parse_modules_info<R: Read>(&mut self, r: R) -> Result<Vec<(Range<usize>, String)>> {
+        let contents = &mut String::with_capacity(0x80000);
+        let mut reader = BufReader::new(r);
+        let _ = reader.read_to_string(contents)?;
+        Ok(InfoIter::new(contents)
+            .map(|Info { start, end, name }| (start..end, name.to_string()))
+            .collect())
     }
 }

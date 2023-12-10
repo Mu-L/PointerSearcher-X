@@ -40,7 +40,11 @@ int create_pointer_map_file(struct PointerSearcherX *ptr, Pid pid, bool align,
                             const char *info_file_path,
                             const char *bin_file_path);
 
-int load_pointer_map_file(struct PointerSearcherX *ptr, const char *file_path);
+int load_pointer_map_file(struct PointerSearcherX *ptr, const char *bin_path,
+                          const char *info_path);
 
-int scan_pointer_chain(struct PointerSearcherX *ptr, struct ModuleList modules,
-                       struct Params params, const char *file_path);
+int scanner_pointer_chain(struct PointerSearcherX *ptr,
+                          struct ModuleList modules, struct Params params,
+                          const char *file_path);
+
+struct ModuleList get_modules_info(struct PointerSearcherX *ptr);

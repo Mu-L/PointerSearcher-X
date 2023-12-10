@@ -8,6 +8,7 @@ mod ffi_types;
 use std::{
     ffi::{c_char, c_int, CStr, CString},
     fs::{File, OpenOptions},
+    ops::Range,
     path::Path,
     ptr::{self, slice_from_raw_parts},
     str::{self, Utf8Error},
@@ -33,6 +34,7 @@ macro_rules! try_result {
 pub struct PointerSearcherX {
     inner: PtrsxScanner,
     last_error: Option<CString>,
+    modules: Option<Vec<Module>>,
 }
 
 const PARAMS_ERROR: &str = "params error";
@@ -104,11 +106,25 @@ pub unsafe extern "C" fn create_pointer_map_file(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn load_pointer_map_file(ptr: *mut PointerSearcherX, file_path: *const c_char) -> c_int {
+pub unsafe extern "C" fn load_pointer_map_file(
+    ptr: *mut PointerSearcherX,
+    bin_path: *const c_char,
+    info_path: *const c_char,
+) -> c_int {
     let ptrsx = &mut (*ptr);
-    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(file_path).to_bytes()));
-    let file = try_result!(ptrsx, File::open(string));
     let scanner = &mut ptrsx.inner;
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(info_path).to_bytes()));
+    let file = try_result!(ptrsx, File::open(string));
+    let modules = try_result!(ptrsx, scanner.parse_modules_info(file))
+        .into_iter()
+        .map(|(Range { start, end }, name)| {
+            let name = CString::new(name).unwrap().into_raw();
+            Module { start, end, name }
+        })
+        .collect();
+    ptrsx.modules = Some(modules);
+    let string = try_result!(ptrsx, str::from_utf8(CStr::from_ptr(bin_path).to_bytes()));
+    let file = try_result!(ptrsx, File::open(string));
     try_result!(ptrsx, scanner.load_pointer_map(file));
     0
 }
@@ -123,7 +139,7 @@ pub unsafe extern "C" fn scanner_pointer_chain(
     let ptrsx = &mut (*ptr);
     let scanner = &mut ptrsx.inner;
     let Params { target, depth, node, rangel, ranger } = params;
-    if node >= depth || depth > 32 {
+    if node >= depth {
         ptrsx.set_last_error(PARAMS_ERROR);
         return -1;
     }
@@ -154,4 +170,12 @@ pub unsafe extern "C" fn scanner_pointer_chain(
     try_result!(ptrsx, scanner.pointer_chain_scanner(param, file));
 
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn get_modules_info(ptr: *mut PointerSearcherX) -> ModuleList {
+    let modules = (*ptr).modules.as_ref().unwrap();
+    let len = modules.len();
+    let data = modules.as_ptr();
+    ModuleList { len, data }
 }

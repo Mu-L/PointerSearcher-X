@@ -198,7 +198,7 @@ impl Iterator for PageIter {
                 return None;
             }
 
-            let pathname = get_path_name(self.handle, self.base).ok();
+            let pathname = get_mapped_file_name_w(self.handle, self.base).ok();
 
             let info = basic.assume_init();
             self.base = info.BaseAddress as usize + info.RegionSize;
@@ -214,11 +214,11 @@ impl Iterator for PageIter {
 }
 
 #[inline(always)]
-unsafe fn get_path_name(handle: HANDLE, base: usize) -> Result<String, WIN32_ERROR> {
+unsafe fn get_mapped_file_name_w(handle: HANDLE, base: usize) -> Result<String, WIN32_ERROR> {
     let mut buf = [0; MAX_PATH as _];
     let result = GetMappedFileNameW(handle, base as _, buf.as_mut_ptr(), buf.len() as _);
     if result == 0 {
         return Err(GetLastError());
     }
-    Ok(OsString::from_wide(&buf[..result as _]).to_string_lossy().to_string())
+    Ok(OsString::from_wide(&buf[..result as _]).into_string().unwrap())
 }
