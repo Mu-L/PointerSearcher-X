@@ -1,26 +1,31 @@
 use std::{
     fs::{File, OpenOptions},
-    path::PathBuf,
+    thread,
 };
 
 use ptrsx::{Param, PtrsxScanner};
+use rayon::{
+    iter::{IntoParallelIterator, ParallelIterator},
+    ThreadPool, ThreadPoolBuilder,
+};
 
-use super::{Address, Error, Offset, Spinner, SubCommandScan};
+use super::{Error, Spinner, SubCommandScan};
+use crate::{AddressList, Range};
 
 impl SubCommandScan {
     pub fn init(self) -> Result<(), Error> {
         let Self {
             bin,
             info,
-            target: Address(target),
+            list: AddressList(list),
             depth,
-            offset: Offset(offset),
+            range: Range(range),
             node,
             dir,
         } = self;
 
         if depth <= node {
-            return Err(format!("Error: depth must be greater than node. current depth({depth}), node({node}).").into());
+            return Err(format!("depth must be greater than node. current depth({depth}), node({node}).").into());
         }
 
         let mut spinner = Spinner::start("Start loading cache...");
@@ -29,21 +34,37 @@ impl SubCommandScan {
         ptrsx.load_modules_info(info)?;
         let bin = File::open(bin)?;
         ptrsx.load_pointer_map(bin)?;
-        spinner.stop("cache loaded.");
+        spinner.stop("cache load is finished.");
 
         let mut spinner = Spinner::start("Start scanning pointer chain...");
 
-        let file = dir.unwrap_or_else(|| PathBuf::from(target.to_string()).with_extension("scandata"));
-        let file = OpenOptions::new()
-            .write(true)
-            .append(true)
-            .create_new(true)
-            .open(file)?;
-        let param = Param { depth, target, node, range: offset };
-        ptrsx.pointer_chain_scanner(param, file)?;
+        let dir = dir.unwrap_or_default();
 
-        spinner.stop("Pointer chain is scanned.");
+        rayon_create_pool(list.len())?.install(|| {
+            list.into_par_iter().try_for_each(|addr| {
+                let path = dir.join(format!("{addr:x}")).with_extension("scandata");
+                let file = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .create_new(true)
+                    .open(path)?;
+                let param = Param { depth, addr, node, range };
+                ptrsx.pointer_chain_scanner(param, file)
+            })
+        })?;
+
+        spinner.stop("pointer chain scan is finished.");
 
         Ok(())
     }
+}
+
+pub fn rayon_create_pool(num_threads: usize) -> Result<ThreadPool, Error> {
+    let num_cpus = thread::available_parallelism()?.get();
+    let num = num_threads.min(num_cpus);
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(num)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(pool)
 }

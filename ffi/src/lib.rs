@@ -138,7 +138,7 @@ pub unsafe extern "C" fn scanner_pointer_chain(
 ) -> c_int {
     let ptrsx = &mut (*ptr);
     let scanner = &mut ptrsx.inner;
-    let Params { target, depth, node, rangel, ranger } = params;
+    let Params { addr, depth, node, rangel, ranger } = params;
     if node >= depth {
         ptrsx.set_last_error(PARAMS_ERROR);
         return -1;
@@ -155,7 +155,7 @@ pub unsafe extern "C" fn scanner_pointer_chain(
             .open(file_name)
     );
 
-    let param = ptrsx::Param { depth, target, node, range: (rangel, ranger) };
+    let param = ptrsx::Param { depth, addr, node, range: (rangel, ranger) };
     let binding = &*slice_from_raw_parts(modules.data, modules.len);
     let modules = binding
         .iter()

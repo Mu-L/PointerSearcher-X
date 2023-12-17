@@ -29,9 +29,8 @@ impl Spinner {
                 .cycle()
                 .take_while(|_| ssp.load(Ordering::Relaxed))
                 .for_each(|c| {
-                    write!(stdout, "\r\x1B[34m[{c}]\x1B[0m {msg}  Time: {:.1}s", time.elapsed().as_secs_f32())
-                        .expect("error: failed to write to stdout");
-                    stdout.flush().expect("error: failed to flush stdout");
+                    write!(stdout, "\r\x1B[34m[{c}]\x1B[0m {msg}  Time: {:.1}s", time.elapsed().as_secs_f32()).unwrap();
+                    stdout.flush().unwrap();
                     thread::sleep(Duration::from_millis(100));
                 })
         });

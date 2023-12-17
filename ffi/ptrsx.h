@@ -22,8 +22,8 @@ typedef struct ModuleList {
   const struct Module *data;
 } ModuleList;
 
-typedef struct Params {
-  size_t target;
+typedef struct Param {
+  size_t addr;
   size_t depth;
   size_t node;
   size_t rangel;
@@ -44,7 +44,7 @@ int load_pointer_map_file(struct PointerSearcherX *ptr, const char *bin_path,
                           const char *info_path);
 
 int scanner_pointer_chain(struct PointerSearcherX *ptr,
-                          struct ModuleList modules, struct Params params,
+                          struct ModuleList modules, struct Param params,
                           const char *file_path);
 
 struct ModuleList get_modules_info(struct PointerSearcherX *ptr);

@@ -15,7 +15,7 @@ pub struct ModuleList {
 
 #[repr(C)]
 pub struct Params {
-    pub target: usize,
+    pub addr: usize,
     pub depth: usize,
     pub node: usize,
     pub rangel: usize,

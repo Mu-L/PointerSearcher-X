@@ -53,11 +53,11 @@ pub struct WVecU8(pub Vec<u8>);
 
 impl FromArgValue for WVecU8 {
     fn from_arg_value(value: &str) -> Result<Self, String> {
-        let parts = value.split(['[', ']', ',', ' ']).filter(|x| !x.is_empty());
+        let parts = value.split(['[', ']', ',', ' ']).filter(|s| !s.is_empty());
         let bytes = parts
             .map(|s| u8::from_str_radix(s.trim().trim_start_matches("0x"), 16))
             .collect::<Result<Vec<u8>, _>>()
-            .map_err(|_| "parse bytes error")?;
+            .map_err(|_| "parse bytes failed")?;
         Ok(Self(bytes))
     }
 }

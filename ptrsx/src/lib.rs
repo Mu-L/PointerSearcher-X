@@ -14,23 +14,14 @@ use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
 const PTRSIZE: usize = mem::size_of::<usize>();
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const DEFAULT_BUF_SIZE: usize = 0x4000;
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-const DEFAULT_BUF_SIZE: usize = 0x40000;
-
-#[cfg(any(target_os = "windows", all(target_os = "macos", target_arch = "x86_64"),))]
-const DEFAULT_BUF_SIZE: usize = 0x1000;
-
 pub enum Error {
-    Vmmap(vmmap::Error),
+    Vm(vmmap::Error),
     Io(std::io::Error),
 }
 
 impl From<vmmap::Error> for Error {
     fn from(value: vmmap::Error) -> Self {
-        Self::Vmmap(value)
+        Self::Vm(value)
     }
 }
 
@@ -43,7 +34,7 @@ impl From<std::io::Error> for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Vmmap(err) => write!(f, "{err}"),
+            Error::Vm(err) => write!(f, "{err}"),
             Error::Io(err) => write!(f, "{err}"),
         }
     }
@@ -162,7 +153,7 @@ fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
     }
     let mut buf = [0; 8];
     File::open(path)
-        .and_then(|mut f| f.read(&mut buf))
+        .and_then(|mut f| f.read_exact(&mut buf))
         .is_ok_and(|_| [0x4d, 0x5a].eq(&buf[0..2]))
 }
 
@@ -204,17 +195,6 @@ impl<K, V> RangeMap<K, V> {
 impl<K, V> RangeMap<K, V>
 where
     K: Ord + Copy,
-    V: Eq + Clone,
-{
-    fn insert(&mut self, range: Range<K>, value: V) {
-        assert!(range.start <= range.end);
-        self.0.insert(RangeWrapper(range), value);
-    }
-}
-
-impl<K, V> RangeMap<K, V>
-where
-    K: Ord + Copy,
 {
     fn get_key_value(&self, point: K) -> Option<(&Range<K>, &V)> {
         let start = RangeWrapper(point..point);
@@ -233,7 +213,8 @@ where
 {
     fn extend<T: IntoIterator<Item = (Range<K>, V)>>(&mut self, iter: T) {
         iter.into_iter().for_each(move |(k, v)| {
-            self.insert(k, v);
+            assert!(k.start <= k.end);
+            self.0.insert(RangeWrapper(k), v);
         })
     }
 }
@@ -271,11 +252,20 @@ where
     P: VirtualMemoryRead,
     W: Write,
 {
-    let mut buf = [0; DEFAULT_BUF_SIZE];
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    const BUF_SIZE: usize = 0x4000;
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const BUF_SIZE: usize = 0x40000;
+
+    #[cfg(any(target_os = "windows", all(target_os = "macos", target_arch = "x86_64"),))]
+    const BUF_SIZE: usize = 0x1000;
+
+    let mut buf = [0; BUF_SIZE];
 
     if is_align {
         for &(start, size) in region {
-            for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
+            for off in (0..size).step_by(BUF_SIZE) {
                 let size = proc.read_at(buf.as_mut_slice(), start + off)?;
                 for (k, value) in buf[..size]
                     .windows(PTRSIZE)
@@ -302,7 +292,7 @@ where
         }
     } else {
         for &(start, size) in region {
-            for off in (0..size).step_by(DEFAULT_BUF_SIZE) {
+            for off in (0..size).step_by(BUF_SIZE) {
                 let size = proc.read_at(buf.as_mut_slice(), start + off)?;
                 for (k, value) in buf[..size]
                     .windows(PTRSIZE)
@@ -340,17 +330,12 @@ pub struct PtrsxScanner {
 
 pub struct Param {
     pub depth: usize,
-    pub target: usize,
+    pub addr: usize,
     pub node: usize,
     pub range: (usize, usize),
 }
 
 impl PtrsxScanner {
-    #[cfg(target_family = "unix")]
-    const PREFIX: char = '/';
-    #[cfg(target_os = "windows")]
-    const PREFIX: char = '\\';
-
     pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<()> {
         let proc = Process::open(pid)?;
         let pages = proc.get_maps().filter(check_region).collect::<Vec<_>>();
@@ -361,9 +346,9 @@ impl PtrsxScanner {
             .iter()
             .flat_map(|m| {
                 use core::fmt::Write;
-                let mut name = m.name()?.rsplit_once(Self::PREFIX)?.1.to_string();
+                let mut name = Path::new(m.name()?).file_name()?.to_string_lossy();
                 let count = counts.entry(name.clone()).or_insert(1);
-                let _ = write!(name, "[{}]", count);
+                let _ = write!(name.to_mut(), "[{}]", count);
                 *count += 1;
                 Some((m.start(), m.end(), name))
             })
@@ -372,14 +357,16 @@ impl PtrsxScanner {
     }
 
     pub fn load_pointer_map<R: Read>(&mut self, reader: R) -> Result<()> {
-        let mut buf = vec![0; PTRSIZE * 0x10000];
+        const BUF_SIZE: usize = PTRSIZE * 0x10000;
+        const CHUNK_SIZE: usize = PTRSIZE * 2;
+        let mut buf = vec![0; BUF_SIZE];
         let mut cursor = Cursor::new(reader);
         loop {
             let size = cursor.get_mut().read(&mut buf)?;
             if size == 0 {
                 break;
             }
-            for chuks in buf[..size].chunks_exact(PTRSIZE * 2) {
+            for chuks in buf[..size].chunks_exact(CHUNK_SIZE) {
                 let (key, value) = chuks.split_at(PTRSIZE);
                 let (key, value) =
                     (usize::from_le_bytes(key.try_into().unwrap()), usize::from_le_bytes(value.try_into().unwrap()));
@@ -414,10 +401,10 @@ impl PtrsxScanner {
     where
         W: Write,
     {
-        let Param { depth, target, node, range } = param;
+        let Param { depth, addr, node, range } = param;
 
-        let min = target.saturating_sub(range.1);
-        let max = target.saturating_add(range.0);
+        let min = addr.saturating_sub(range.1);
+        let max = addr.saturating_add(range.0);
 
         let idx = points.binary_search(&min).unwrap_or_else(|x| x);
 
@@ -426,22 +413,21 @@ impl PtrsxScanner {
             .skip(idx)
             .copied()
             .take_while(|x| max.ge(x))
-            .min_by_key(|x| (x.wrapping_sub(target) as isize).abs())
+            .min_by_key(|x| (x.wrapping_sub(addr) as isize).abs())
             .is_some_and(|_| chain.len() >= node)
         {
-            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(target) {
-                write!(w, "{name}+{}", target - start)?;
+            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(addr) {
+                write!(w, "{name}+{}", addr - start)?;
                 chain.iter().rev().try_for_each(|o| write!(w, "@{o}"))?;
                 writeln!(w)?;
             }
         }
 
         if lv <= depth {
-            for (&k, vec) in self.reverse.range((Bound::Included(min), Bound::Included(max))) {
-                chain.push(target.wrapping_sub(k) as isize);
-                vec.iter().try_for_each(|&target| {
-                    self.scanner(Param { depth, target, node, range }, points, lv + 1, chain, w)
-                })?;
+            for (&k, list) in self.reverse.range((Bound::Included(min), Bound::Included(max))) {
+                chain.push(addr.wrapping_sub(k) as isize);
+                list.iter()
+                    .try_for_each(|&addr| self.scanner(Param { depth, addr, node, range }, points, lv + 1, chain, w))?;
                 chain.pop();
             }
         }
