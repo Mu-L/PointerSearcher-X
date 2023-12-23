@@ -7,7 +7,7 @@ fn main() {
     let cmds = argh::from_env::<Commands>();
     match inject(cmds.pid, cmds.path) {
         Ok(_) => println!("Injected successfully"),
-        Err(err) => println!("{err}"),
+        Err(err) => eprintln!("\x1b[31m error: {err} \x1b[0m"),
     };
 }
 
