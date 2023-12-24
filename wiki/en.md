@@ -40,7 +40,7 @@ In the end, I only kept these
 
 run scanning program
 
-`./scanner scan --bin 4114.bin --info 4114.info.txt -t 0x84cbcfd0 -d 4 -o 0:4000`
+`./scanner scan --bin 4114.bin --info 4114.info.txt -t 0x84cbcfd0 -d 4 -r 0:4000`
 
 `--bin` specifies the dumped *.bin file.
 
@@ -50,11 +50,11 @@ run scanning program
 
 `-d/--depth` represents the maximum depth of the pointer chain, maximum support `2^64`.
 
-`-o/--offset` represents the offset range. It can support up to -2^64:+2^64.
+`-r/--range` represents the offset range. It can support up to -2^64:+2^64.
 
-Note that `-d/--depth` and `-o/--offset` will greatly affect the scanning speed and the results produced.
+Note that `-d/--depth` and `-r/--range` will greatly affect the scanning speed and the results produced.
 
-The scanning cost is O(NN*D) (D: maximum depth, N: number of offsets). In general, the larger the number set, the slower the scan, and the more results.
+The scanning cost is O(NN*D) (D: maximum depth, N: number of range). In general, the larger the number set, the slower the scan, and the more results.
 
 After the scan is completed, it will produce a `*.scandata` file.
 
@@ -98,7 +98,7 @@ While writing this tutorial I forgot which version of the game I had.
 
 If you want to give it a try you can try `Linux x86_64 DeadCells v34 [2023-06-20 - ffcb38d13 - 15 - Steam]`
 
-Set `depth/d` 6 `offset/o` 0:900
+Set `depth/d` 6 `range/r` 0:900
 
 > In game coin data: verify pointer chain `libhl.so[3]+14208@488@888@192@232@136@72`
 
@@ -106,6 +106,14 @@ Set `depth/d` 6 `offset/o` 0:900
 
 Other game: `Android arm64-v8a 9you-SoulKnight 5.4.7.9`
 
-Set `depth/d` 4 `offset/o` 0:3000
+Set `depth/d` 4 `range/r` 0:3000
 
 > In game coin data: verify pointer chain `libil2cpp.so[3]+7806384@184@576@32`
+
+## FAQ
+
+`*.scandata` convert PINCE `*.pct` cheat table.
+
+```shell
+./conv pince --scandata file.scandata
+```

@@ -40,7 +40,7 @@
 
 接下来运行扫描程序 
 
-`./scanner scan --bin 4114.bin --info 4114.info.txt -t 0x84cbcfd0 -d 4 -o 0:4000`
+`./scanner scan --bin 4114.bin --info 4114.info.txt -t 0x84cbcfd0 -d 4 -r 0:4000`
 
 `--bin` 指定转储的 `*.bin` 文件。
 
@@ -50,9 +50,9 @@
 
 `-d/--depth` 表示指针链的最大深度，最大支持 `2^64`。
 
-`-o/--offset` 表示偏移范围 它最大可以支持 `-2^64:+2^64`。
+`-r/--range` 表示偏移范围 它最大可以支持 `-2^64:+2^64`。
 
-注意 `-d/--depth` 和 `-o/--offset` 会极大影响扫描速度以及产生的结果。
+注意 `-d/--depth` 和 `-r/--range` 会极大影响扫描速度以及产生的结果。
 
 扫描成本为 O（NN*D）（D：最大深度，N：偏移数）。一般情况下设置的数字越大，扫描越慢，结果越多。
 
@@ -98,7 +98,7 @@
 
 如果你想要试一试 可以尝试 `Linux x86_64 死亡细胞 v34 [2023-06-20 - ffcb38d13 - 15 - Steam]`
 
-设置 `depth/d` 6 `offset/o` 0:900
+设置 `depth/d` 6 `range/r` 0:900
 
 > 游戏中的金币数据 验证指针链 `libhl.so[3]+14208@488@888@192@232@136@72`
 
@@ -106,6 +106,14 @@
 
 其它游戏: `安卓 arm64-v8a 九游版元气骑士 5.4.7.9`
 
-设置 `depth/d` 4 `offset/o` 0:3000
+设置 `depth/d` 4 `range/r` 0:3000
 
 > 游戏中的金币数据 验证指针链 `libil2cpp.so[3]+7806384@184@576@32`
+
+## FAQ
+
+`*.scandata` 转换为 PINCE `*.pct` 作弊表。
+
+```shell
+./conv pince --scandata file.scandata
+```
