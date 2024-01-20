@@ -1,12 +1,10 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet, HashMap},
-    fs::File,
     io::{BufReader, BufWriter, Cursor, Read, Write},
     mem,
     ops::{Bound, Range},
     path::Path,
-    str::Lines,
 };
 
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
@@ -44,6 +42,8 @@ pub type Result<T, E = Error> = core::result::Result<T, E>;
 #[cfg(target_os = "macos")]
 #[inline]
 fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -> bool {
+    use std::fs::File;
+
     if !page.is_read() || page.is_reserve() {
         return false;
     }
@@ -69,6 +69,8 @@ fn check_region<Q: VirtualQuery + vmmap::macos::VirtualQueryExt>(page: &Q) -> bo
 #[cfg(target_os = "linux")]
 #[inline]
 fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+    use std::fs::File;
+
     if !page.is_read() {
         return false;
     }
@@ -95,6 +97,8 @@ fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 #[cfg(target_os = "android")]
 #[inline]
 fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+    use std::fs::File;
+
     if !page.is_read() {
         return false;
     }
@@ -135,6 +139,8 @@ fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
 #[cfg(target_os = "windows")]
 #[inline]
 fn check_region<Q: VirtualQuery>(page: &Q) -> bool {
+    use std::fs::File;
+
     if !page.is_read() {
         return false;
     }
@@ -221,23 +227,24 @@ where
     }
 }
 
-struct Info<'a> {
+struct Module<'a> {
     start: usize,
     end: usize,
     name: &'a str,
 }
 
-struct InfoIter<'a>(Lines<'a>);
+struct ModuleIter<'a>(core::str::Lines<'a>);
 
-impl<'a> InfoIter<'a> {
+impl<'a> ModuleIter<'a> {
     fn new(contents: &'a str) -> Self {
         Self(contents.lines())
     }
 }
 
-impl<'a> Iterator for InfoIter<'a> {
-    type Item = Info<'a>;
+impl<'a> Iterator for ModuleIter<'a> {
+    type Item = Module<'a>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let line = self.0.next()?;
         let mut split = line.splitn(2, ' ');
@@ -245,24 +252,24 @@ impl<'a> Iterator for InfoIter<'a> {
         let start = usize::from_str_radix(range_split.next()?, 16).ok()?;
         let end = usize::from_str_radix(range_split.next()?, 16).ok()?;
         let name = split.next()?.trim();
-        Some(Info { start, end, name })
+        Some(Module { start, end, name })
     }
 }
 
-struct ChunkIterator {
+struct ChunkIter {
     max: usize,
     size: usize,
     pos: usize,
 }
 
-impl ChunkIterator {
+impl ChunkIter {
     #[inline]
     fn new(max: usize, size: usize) -> Self {
         Self { max, size, pos: 0 }
     }
 }
 
-impl Iterator for ChunkIterator {
+impl Iterator for ChunkIter {
     type Item = (usize, usize);
 
     #[inline]
@@ -288,7 +295,7 @@ where
     if is_align {
         for vq in vqs {
             let (start, size) = (vq.start(), vq.size());
-            for (off, size) in ChunkIterator::new(size, BUF_SIZE) {
+            for (off, size) in ChunkIter::new(size, BUF_SIZE) {
                 proc.read_exact_at(&mut buf[..size], start + off)?;
                 for (k, value) in buf[..size]
                     .windows(PTRSIZE)
@@ -296,7 +303,7 @@ where
                     .step_by(PTRSIZE)
                     .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
                 {
-                    if vqs
+                    let ok = vqs
                         .binary_search_by(|vq| {
                             let (start, size) = (vq.start(), vq.size());
                             if (start..start + size).contains(&value) {
@@ -305,8 +312,8 @@ where
                                 start.cmp(&value)
                             }
                         })
-                        .is_ok()
-                    {
+                        .is_ok();
+                    if ok {
                         let key = start + off + k;
                         w.write_all(&key.to_le_bytes())?;
                         w.write_all(&value.to_le_bytes())?;
@@ -317,14 +324,14 @@ where
     } else {
         for vq in vqs {
             let (start, size) = (vq.start(), vq.size());
-            for (off, size) in ChunkIterator::new(size, BUF_SIZE) {
+            for (off, size) in ChunkIter::new(size, BUF_SIZE) {
                 proc.read_exact_at(&mut buf[..size], start + off)?;
                 for (k, value) in buf[..size]
                     .windows(PTRSIZE)
                     .enumerate()
                     .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
                 {
-                    if vqs
+                    let ok = vqs
                         .binary_search_by(|vq| {
                             let (start, size) = (vq.start(), vq.size());
                             if (start..start + size).contains(&value) {
@@ -333,8 +340,8 @@ where
                                 start.cmp(&value)
                             }
                         })
-                        .is_ok()
-                    {
+                        .is_ok();
+                    if ok {
                         let key = start + off + k;
                         w.write_all(&key.to_le_bytes())?;
                         w.write_all(&value.to_le_bytes())?;
@@ -348,10 +355,18 @@ where
 }
 
 #[derive(Default)]
+enum ScanMode {
+    #[default]
+    Dense,
+    Sparse,
+}
+
+#[derive(Default)]
 pub struct PtrsxScanner {
     index: RangeMap<usize, String>,
     forward: BTreeSet<usize>,
     reverse: BTreeMap<usize, Vec<usize>>,
+    mode: ScanMode,
 }
 
 pub struct Param {
@@ -398,6 +413,13 @@ impl PtrsxScanner {
                 }
             }
         }
+
+        let count = self.reverse.values().filter(|v| v.len() < 64).count();
+        self.mode = match (self.reverse.len() - count).checked_mul(512) {
+            Some(n) if n < count => ScanMode::Sparse,
+            _ => ScanMode::Dense,
+        };
+
         Ok(())
     }
 
@@ -406,7 +428,7 @@ impl PtrsxScanner {
         let mut reader = BufReader::new(r);
         let _ = reader.read_to_string(contents)?;
         self.index
-            .extend(InfoIter::new(contents).map(|Info { start, end, name }| (start..end, name.to_string())));
+            .extend(ModuleIter::new(contents).map(|Module { start, end, name }| (start..end, name.to_string())));
         Ok(())
     }
 
@@ -417,10 +439,24 @@ impl PtrsxScanner {
             .flat_map(|(Range { start, end }, _)| self.forward.range((Bound::Included(start), Bound::Included(end))))
             .copied()
             .collect::<Vec<_>>();
-        self.scanner(param, points, 1, &mut Vec::with_capacity(0x200), &mut BufWriter::new(w))
+        match self.mode {
+            ScanMode::Dense => {
+                self.scanner_dense(param, points, 1, &mut Vec::with_capacity(0x200), &mut BufWriter::new(w))
+            }
+            ScanMode::Sparse => {
+                self.scanner_sparse(param, points, 1, &mut Vec::with_capacity(0x200), &mut BufWriter::new(w))
+            }
+        }
     }
 
-    fn scanner<W>(&self, param: Param, points: &[usize], lv: usize, chain: &mut Vec<isize>, w: &mut W) -> Result<()>
+    fn scanner_dense<W>(
+        &self,
+        param: Param,
+        points: &[usize],
+        lv: usize,
+        chain: &mut Vec<isize>,
+        w: &mut W,
+    ) -> Result<()>
     where
         W: Write,
     {
@@ -448,8 +484,54 @@ impl PtrsxScanner {
         if lv <= depth {
             for (&k, list) in self.reverse.range((Bound::Included(min), Bound::Included(max))) {
                 chain.push(addr.wrapping_sub(k) as isize);
-                list.iter()
-                    .try_for_each(|&addr| self.scanner(Param { depth, addr, node, range }, points, lv + 1, chain, w))?;
+                list.iter().try_for_each(|&addr| {
+                    self.scanner_dense(Param { depth, addr, node, range }, points, lv + 1, chain, w)
+                })?;
+                chain.pop();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn scanner_sparse<W>(
+        &self,
+        param: Param,
+        points: &[usize],
+        lv: usize,
+        chain: &mut Vec<isize>,
+        w: &mut W,
+    ) -> Result<()>
+    where
+        W: Write,
+    {
+        let Param { depth, addr, node, range } = param;
+
+        let min = addr.saturating_sub(range.1);
+        let max = addr.saturating_add(range.0);
+
+        let idx = points.iter().position(|x| min.le(x)).unwrap_or(points.len());
+
+        if points
+            .iter()
+            .skip(idx)
+            .take_while(|x| max.ge(x))
+            .min_by_key(|x| (x.wrapping_sub(addr) as isize).abs())
+            .is_some_and(|_| chain.len() >= node)
+        {
+            if let Some((Range { start, end: _ }, name)) = self.index.get_key_value(addr) {
+                write!(w, "{name}+{}", addr - start)?;
+                chain.iter().rev().try_for_each(|o| write!(w, "@{o}"))?;
+                writeln!(w)?;
+            }
+        }
+
+        if lv <= depth {
+            for (&k, list) in self.reverse.range((Bound::Included(min), Bound::Included(max))) {
+                chain.push(addr.wrapping_sub(k) as isize);
+                list.iter().try_for_each(|&addr| {
+                    self.scanner_sparse(Param { depth, addr, node, range }, points, lv + 1, chain, w)
+                })?;
                 chain.pop();
             }
         }
@@ -474,8 +556,8 @@ impl PtrsxScanner {
         let contents = &mut String::with_capacity(0x80000);
         let mut reader = BufReader::new(r);
         let _ = reader.read_to_string(contents)?;
-        Ok(InfoIter::new(contents)
-            .map(|Info { start, end, name }| (start..end, name.to_string()))
+        Ok(ModuleIter::new(contents)
+            .map(|Module { start, end, name }| (start..end, name.to_string()))
             .collect())
     }
 }
