@@ -38,7 +38,6 @@ pub struct Process {
 }
 
 impl VirtualMemoryRead for Process {
-    #[inline]
     fn read_at(&self, buf: &mut [u8], offset: usize) -> Result<usize> {
         unsafe {
             let mut outsize = 0;
@@ -288,7 +287,6 @@ unsafe fn pidpath(pid: Pid) -> Result<PathBuf, kern_return_t> {
     }
 }
 
-#[allow(unused)]
 struct MappingBase {
     addr: mach_vm_address_t,
     size: mach_vm_size_t,

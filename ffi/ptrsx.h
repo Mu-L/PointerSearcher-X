@@ -1,50 +1,42 @@
-#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#if defined(__linux__)
-typedef int Pid;
-#elif defined(__WIN32__)
-typedef unsigned int Pid;
-#elif defined(__APPLE__)
-typedef int Pid;
-#endif
+typedef struct PointerScan PointerScan;
 
-typedef struct PointerSearcherX PointerSearcherX;
-
-typedef struct Module {
-  size_t start;
-  size_t end;
-  char *name;
-} Module;
-
-typedef struct ModuleList {
-  size_t len;
-  const struct Module *data;
-} ModuleList;
+typedef struct PointerVerify PointerVerify;
 
 typedef struct Param {
   size_t addr;
   size_t depth;
   size_t node;
-  size_t rangel;
-  size_t ranger;
-} Params;
+  size_t left;
+  size_t right;
+} Param;
 
-const char *get_last_error(struct PointerSearcherX *ptr);
+struct PointerScan *ptrs_init(void);
 
-struct PointerSearcherX *ptrsx_init(void);
+void ptrs_free(struct PointerScan *ptr);
 
-void ptrsx_free(struct PointerSearcherX *ptr);
+const char *get_last_error(void);
 
-int create_pointer_map_file(struct PointerSearcherX *ptr, Pid pid, bool align,
-                            const char *info_file_path,
-                            const char *bin_file_path);
+int ptrs_create_pointer_map(struct PointerScan *ptr, int pid, bool align,
+                            const char *info_path, const char *bin_path);
 
-int load_pointer_map_file(struct PointerSearcherX *ptr, const char *info_path,
+int ptrs_load_pointer_map(struct PointerScan *ptr, const char *info_path,
                           const char *bin_path);
 
-int scanner_pointer_chain(struct PointerSearcherX *ptr,
-                          struct ModuleList modules, struct Param params,
-                          const char *file_path);
+int ptrs_scan_pointer_chain(struct PointerScan *ptr, struct Param params,
+                            const char *file_path);
 
-struct ModuleList get_modules_info(struct PointerSearcherX *ptr);
+int compare_two_file(const char *file1, const char *file2, const char *outfile);
+
+struct PointerVerify *ptrv_init(void);
+
+void ptrv_free(struct PointerVerify *ptr);
+
+int ptrv_set_proc(struct PointerVerify *ptr, int pid);
+
+int ptrv_invalid_filter(struct PointerVerify *ptr, const char *_file);
+
+int ptrv_value_filter(struct PointerVerify *ptr, const char *_file,
+                      const uint8_t *_data, size_t _size);

@@ -9,7 +9,7 @@ use std::{
 
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
-const PTRSIZE: usize = mem::size_of::<usize>();
+const PTR_SIZE: usize = mem::size_of::<usize>();
 const PAGE_SIZE: usize = 0x100000;
 
 pub enum Error {
@@ -178,7 +178,7 @@ impl<T: PartialOrd> PartialOrd for RangeWrapper<T> {
 }
 
 #[derive(Default)]
-struct RangeMap<K, V>(BTreeMap<RangeWrapper<K>, V>);
+struct RangeMap<K, V>(std::collections::BTreeMap<RangeWrapper<K>, V>);
 
 impl<K, V> RangeMap<K, V> {
     fn iter(&self) -> impl Iterator<Item = (&Range<K>, &V)> {
@@ -278,15 +278,20 @@ impl Iterator for ChunkIter {
 }
 
 #[inline]
-fn is_pointer<V: VirtualQuery>(v: &usize, vqs: &[V]) -> bool {
+fn is_pointer<V: VirtualQuery>(addr: &usize, vqs: &[V]) -> bool {
     vqs.binary_search_by(|vq| {
         let (start, size) = (vq.start(), vq.size());
-        match (start..start + size).contains(v) {
+        match (start..start + size).contains(addr) {
             true => Ordering::Equal,
-            false => start.cmp(v),
+            false => start.cmp(addr),
         }
     })
     .is_ok()
+}
+
+#[inline]
+fn concat(a: usize, b: usize) -> [u8; PTR_SIZE * 2] {
+    unsafe { core::mem::transmute([a.to_ne_bytes(), b.to_ne_bytes()]) }
 }
 
 fn create_pointer_map_is_align<P, V, W>(proc: &P, vqs: &[V], w: &mut W) -> Result<(), Error>
@@ -303,15 +308,14 @@ where
                 break;
             };
             for (k, v) in buf[..size]
-                .windows(PTRSIZE)
+                .windows(PTR_SIZE)
                 .enumerate()
-                .step_by(PTRSIZE)
-                .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
+                .step_by(PTR_SIZE)
+                .map(|(k, v)| (k, usize::from_ne_bytes(v.try_into().unwrap())))
                 .filter(|(_, v)| is_pointer(v, vqs))
             {
                 let k = start + off + k;
-                w.write_all(&k.to_le_bytes())?;
-                w.write_all(&v.to_le_bytes())?;
+                w.write_all(&concat(k, v))?;
             }
         }
     }
@@ -330,14 +334,13 @@ where
         for (off, size) in ChunkIter::new(size, PAGE_SIZE) {
             proc.read_exact_at(&mut buf[..size], start + off)?;
             for (k, v) in buf[..size]
-                .windows(PTRSIZE)
+                .windows(PTR_SIZE)
                 .enumerate()
-                .map(|(k, v)| (k, usize::from_le_bytes(v.try_into().unwrap())))
+                .map(|(k, v)| (k, usize::from_ne_bytes(v.try_into().unwrap())))
                 .filter(|(_, v)| is_pointer(v, vqs))
             {
                 let k = start + off + k;
-                w.write_all(&k.to_le_bytes())?;
-                w.write_all(&v.to_le_bytes())?;
+                w.write_all(&concat(k, v))?;
             }
         }
     }
@@ -367,7 +370,7 @@ pub struct Param {
 }
 
 impl PtrsxScanner {
-    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, info_w: W, bin_w: W) -> Result<()> {
+    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, w1: W, w2: W) -> Result<()> {
         let proc = Process::open(pid)?;
         let vqs = proc
             .get_maps()
@@ -376,7 +379,7 @@ impl PtrsxScanner {
             .filter(check_region)
             .collect::<Vec<_>>();
         let mut counts = HashMap::new();
-        let mut info_w = BufWriter::new(info_w);
+        let mut info_w = BufWriter::new(w1);
         vqs.iter()
             .flat_map(|m| {
                 let name = Path::new(m.name()?).file_name().and_then(|s| s.to_str())?;
@@ -387,14 +390,14 @@ impl PtrsxScanner {
             })
             .try_for_each(|(start, end, name)| writeln!(info_w, "{start:x}-{end:x} {name}"))?;
         match align {
-            true => create_pointer_map_is_align(&proc, &vqs, &mut BufWriter::new(bin_w)),
-            false => create_pointer_map_no_align(&proc, &vqs, &mut BufWriter::new(bin_w)),
+            true => create_pointer_map_is_align(&proc, &vqs, &mut BufWriter::new(w2)),
+            false => create_pointer_map_no_align(&proc, &vqs, &mut BufWriter::new(w2)),
         }
     }
 
     pub fn load_pointer_map<R: Read>(&mut self, reader: R) -> Result<()> {
-        const BUF_SIZE: usize = PTRSIZE * 0x20000;
-        const CHUNK_SIZE: usize = PTRSIZE * 2;
+        const BUF_SIZE: usize = PTR_SIZE * 0x20000;
+        const CHUNK_SIZE: usize = PTR_SIZE * 2;
         let mut buf = vec![0; BUF_SIZE];
         let mut cursor = Cursor::new(reader);
         loop {
@@ -403,9 +406,9 @@ impl PtrsxScanner {
                 break;
             }
             for chuks in buf[..size].chunks_exact(CHUNK_SIZE) {
-                let (key, value) = chuks.split_at(PTRSIZE);
+                let (key, value) = chuks.split_at(PTR_SIZE);
                 let (key, value) =
-                    (usize::from_le_bytes(key.try_into().unwrap()), usize::from_le_bytes(value.try_into().unwrap()));
+                    (usize::from_ne_bytes(key.try_into().unwrap()), usize::from_ne_bytes(value.try_into().unwrap()));
                 if self.forward.insert(key) {
                     self.reverse.entry(value).or_default().push(key);
                 }
@@ -431,6 +434,7 @@ impl PtrsxScanner {
     }
 
     pub fn pointer_chain_scanner<W: Write>(&self, param: Param, w: W) -> Result<()> {
+        assert!(param.depth > param.node);
         let points = &self
             .index
             .iter()
@@ -537,7 +541,7 @@ impl PtrsxScanner {
         Ok(())
     }
 
-    pub fn set_modules<I>(&mut self, i: I)
+    pub fn append_modules<I>(&mut self, i: I)
     where
         I: Iterator<Item = (Range<usize>, String)>,
     {
@@ -548,14 +552,5 @@ impl PtrsxScanner {
         self.index.clear();
         self.forward.clear();
         self.reverse.clear();
-    }
-
-    pub fn parse_modules_info<R: Read>(&mut self, r: R) -> Result<Vec<(Range<usize>, String)>> {
-        let contents = &mut String::with_capacity(0x80000);
-        let mut reader = BufReader::new(r);
-        let _ = reader.read_to_string(contents)?;
-        Ok(ModuleIter::new(contents)
-            .map(|Module { start, end, name }| (start..end, name.to_string()))
-            .collect())
     }
 }
