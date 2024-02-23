@@ -266,10 +266,13 @@ impl Process {
 }
 
 unsafe fn regionfilename(pid: Pid, address: u64) -> Result<Option<String>, kern_return_t> {
-    let mut buf: Vec<u8> = Vec::with_capacity(PROC_PIDPATHINFO_MAXSIZE as usize - 1);
+    let mut buf = Vec::with_capacity(PROC_PIDPATHINFO_MAXSIZE as usize - 1);
     let ret = proc_regionfilename(pid, address, buf.as_mut_ptr() as _, buf.capacity() as _);
-    if ret <= 0 {
+    #[allow(clippy::comparison_chain)]
+    if ret < 0 {
         Err(ret)
+    } else if ret == 0 {
+        Ok(None)
     } else {
         buf.set_len(ret as usize);
         Ok(Some(String::from_utf8_unchecked(buf)))

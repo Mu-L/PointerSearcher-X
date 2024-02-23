@@ -15,16 +15,36 @@ from ctypes import (
 class Param(Structure):
     _fields_ = [
         # target address
-        ("addr", c_size_t),
+        ("_addr", c_size_t),
         # max depth
-        ("depth", c_size_t),
+        ("_depth", c_size_t),
         # min depth to ignore
-        ("node", c_size_t),
+        ("_node", c_size_t),
         # reverse offset
-        ("left", c_size_t),
+        ("_left", c_size_t),
         # forward offset
-        ("right", c_size_t),
+        ("_right", c_size_t),
     ]
+
+    def addr(self, value: int):
+        self._addr = c_size_t(value)
+        return self
+
+    def depth(self, value: int):
+        self._depth = c_size_t(value)
+        return self
+
+    def node(self, value: int):
+        self._node = c_size_t(value)
+        return self
+
+    def left(self, value: int):
+        self._left = c_size_t(value)
+        return self
+
+    def right(self, value: int):
+        self._right = c_size_t(value)
+        return self
 
 
 class PointerScanTool:
@@ -91,7 +111,7 @@ class PointerScanTool:
 
     # Set target process pid
     def set_pid(self, pid: int):
-        ret = self._lib.ptrs_set_proc(c_int(pid))
+        ret = self._lib.ptrs_set_proc(self._ptr, c_int(pid))
         self._check_ret(ret)
 
     # Create a pointer map and write pointer information to `info_file` and `bin_file`
@@ -111,6 +131,7 @@ class PointerScanTool:
         self._check_ret(ret)
 
     # Scan the pointer chain and write the results to `outfile`
+    # If there are multiple target addresses, you can use it in multiple threads, not sure if it is thread safe for now
     def scan_pointer_chain(self, param: Param, outfile: str):
         ret = self._lib.ptrs_scan_pointer_chain(
             self._ptr, param, c_char_p(outfile.encode())
