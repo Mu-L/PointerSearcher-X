@@ -7,7 +7,7 @@ use std::{
     path::Path,
 };
 
-use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
+use vmmap::{ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
 const PAGE_SIZE: usize = 0x100000;
@@ -370,8 +370,11 @@ pub struct Param {
 }
 
 impl PtrsxScanner {
-    pub fn create_pointer_map<W: Write>(&self, pid: Pid, align: bool, w1: W, w2: W) -> Result<()> {
-        let proc = Process::open(pid)?;
+    pub fn create_pointer_map<W, P>(&self, proc: &P, align: bool, w1: W, w2: W) -> Result<()>
+    where
+        W: Write,
+        P: ProcessInfo + VirtualMemoryRead,
+    {
         let vqs = proc
             .get_maps()
             .flatten()
@@ -379,7 +382,7 @@ impl PtrsxScanner {
             .filter(check_region)
             .collect::<Vec<_>>();
         let mut counts = HashMap::new();
-        let mut info_w = BufWriter::new(w1);
+        let mut w1 = BufWriter::new(w1);
         vqs.iter()
             .flat_map(|m| {
                 let name = Path::new(m.name()?).file_name().and_then(|s| s.to_str())?;
@@ -388,10 +391,10 @@ impl PtrsxScanner {
                 *count += 1;
                 Some((m.start(), m.end(), name))
             })
-            .try_for_each(|(start, end, name)| writeln!(info_w, "{start:x}-{end:x} {name}"))?;
+            .try_for_each(|(start, end, name)| writeln!(w1, "{start:x}-{end:x} {name}"))?;
         match align {
-            true => create_pointer_map_is_align(&proc, &vqs, &mut BufWriter::new(w2)),
-            false => create_pointer_map_no_align(&proc, &vqs, &mut BufWriter::new(w2)),
+            true => create_pointer_map_is_align(proc, &vqs, &mut BufWriter::new(w2)),
+            false => create_pointer_map_no_align(proc, &vqs, &mut BufWriter::new(w2)),
         }
     }
 

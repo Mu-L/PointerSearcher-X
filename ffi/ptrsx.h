@@ -1,9 +1,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct PointerScan PointerScan;
-
-typedef struct PointerVerify PointerVerify;
+typedef struct PointerScanTool PointerScanTool;
 
 typedef struct Param {
   size_t addr;
@@ -13,30 +11,33 @@ typedef struct Param {
   size_t right;
 } Param;
 
-struct PointerScan *ptrs_init(void);
+struct PointerScanTool *ptrs_init(void);
 
-void ptrs_free(struct PointerScan *ptr);
+void ptrs_free(struct PointerScanTool *ptr);
 
 const char *get_last_error(void);
 
-int ptrs_create_pointer_map(struct PointerScan *ptr, int pid, bool align,
-                            const char *info_path, const char *bin_path);
+int ptrs_set_proc(struct PointerScanTool *ptr, int pid);
 
-int ptrs_load_pointer_map(struct PointerScan *ptr, const char *info_path,
+int ptrs_create_pointer_map(struct PointerScanTool *ptr, const char *info_path,
+                            const char *bin_path);
+
+int ptrs_load_pointer_map(struct PointerScanTool *ptr, const char *info_path,
                           const char *bin_path);
 
-int ptrs_scan_pointer_chain(struct PointerScan *ptr, struct Param params,
+int ptrs_scan_pointer_chain(struct PointerScanTool *ptr, struct Param params,
                             const char *file_path);
 
 int compare_two_file(const char *file1, const char *file2, const char *outfile);
 
-struct PointerVerify *ptrv_init(void);
+int ptrs_get_chain_addr(struct PointerScanTool *ptr, const char *chain,
+                        size_t *addr);
 
-void ptrv_free(struct PointerVerify *ptr);
+int ptrs_filter_invalid(struct PointerScanTool *ptr, const char *infile,
+                        const char *outfile);
 
-int ptrv_set_proc(struct PointerVerify *ptr, int pid);
+int ptrs_filter_value(struct PointerScanTool *ptr, const char *infile,
+                      const char *outfile, const uint8_t *data, size_t size);
 
-int ptrv_invalid_filter(struct PointerVerify *ptr, const char *_file);
-
-int ptrv_value_filter(struct PointerVerify *ptr, const char *_file,
-                      const uint8_t *_data, size_t _size);
+int ptrs_filter_addr(struct PointerScanTool *ptr, const char *infile,
+                     const char *outfile, size_t addr);

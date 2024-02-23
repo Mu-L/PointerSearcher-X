@@ -1,6 +1,7 @@
 use std::{fs::OpenOptions, path::PathBuf};
 
 use ptrsx::PtrsxScanner;
+use vmmap::Process;
 
 use super::{DumpCommand, Error, Spinner};
 
@@ -14,7 +15,8 @@ impl DumpCommand {
 
         let info = OpenOptions::new().append(true).create_new(true).open(info)?;
         let bin = OpenOptions::new().append(true).create_new(true).open(bin)?;
-        ptrsx.create_pointer_map(pid, align, info, bin)?;
+        let proc = Process::open(pid)?;
+        ptrsx.create_pointer_map(&proc, align, info, bin)?;
         spinner.stop("dump is finished.");
 
         Ok(())
