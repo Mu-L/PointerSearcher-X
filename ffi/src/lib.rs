@@ -1,3 +1,4 @@
+#![feature(unboxed_closures)]
 #![allow(clippy::missing_safety_doc)]
 
 use std::{
