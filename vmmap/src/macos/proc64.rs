@@ -32,9 +32,9 @@ use super::{
 };
 
 pub struct Process {
-    pid: Pid,
-    task: mach_port_t,
-    pathname: PathBuf,
+    pub pid: Pid,
+    pub task: mach_port_t,
+    pub pathname: PathBuf,
 }
 
 impl VirtualMemoryRead for Process {

@@ -1,6 +1,10 @@
-use std::{fmt::Write, mem, path::Path, process};
+use std::{fmt::Write, mem, path::Path};
 
-use vmmap::{Process, ProcessInfo, VirtualMemoryRead, VirtualMemoryWrite, VirtualQuery};
+#[cfg(target_os = "macos")]
+use vmmap::macos::cmd::ProcessInfoCmdFixed as ProcessInfo;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
+use vmmap::ProcessInfo;
+use vmmap::{Process, VirtualMemoryRead, VirtualMemoryWrite, VirtualQuery};
 
 use super::{Error, TestChainCommand};
 
@@ -39,34 +43,25 @@ where
     P: VirtualMemoryRead + ProcessInfo,
     S: AsRef<str>,
 {
-    let mut parts = chain.as_ref().split(['[', ']', '+', '@']).filter(|s| !s.is_empty());
-    let name = parts.next()?;
-    let index = parts.next()?.parse().ok()?;
-    let offset = parts.next_back()?.parse().ok()?;
-    let elements = parts.map(|s| s.parse());
+    let (a, cs) = chain.as_ref().rsplit_once(']')?;
+    let (name, idx) = a.rsplit_once('[')?;
+    let idx = idx.parse::<usize>().ok()?;
+    let mut iter = cs.split('.');
+    let base = iter.next()?.parse().ok()?;
+    let items = iter.map(|s| s.parse());
 
-    let mut address = find_base_address(proc, name, index).unwrap_or_else(|| {
-        println!("module not found: {name}[{index}]");
-        process::exit(0);
-    });
+    let mut address = find_base_address(proc, name, idx)?.checked_add(base)?;
 
-    println!("{name}[{index}] + {offset} = {address:x}");
+    println!("{name}[{idx}] + {base} = {address:x}");
     let mut buf = [0; mem::size_of::<usize>()];
-    for element in elements {
-        let element = element.ok()?;
-        proc.read_exact_at(&mut buf, address.checked_add_signed(element)?)
-            .ok()?;
-        address = usize::from_le_bytes(buf);
-        println!("+ {element} = {address:x}");
+    for item in items {
+        proc.read_exact_at(&mut buf, address).ok()?;
+        let item = item.ok()?;
+        address = usize::from_le_bytes(buf).checked_add_signed(item)?;
+        println!("+ {item} = {address:x}");
     }
 
-    let target = address.checked_add_signed(offset);
-
-    if let Some(addr) = target {
-        println!("+ {offset} = {addr}");
-    }
-
-    target
+    Some(address)
 }
 
 struct Module<'a> {

@@ -1,3 +1,4 @@
+pub mod cmd;
 mod proc64;
 pub mod utils;
 

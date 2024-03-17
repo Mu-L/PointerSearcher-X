@@ -8,8 +8,6 @@
 
 ASLR causes the program memory address to always be different when you start the program. The so-called "static" addresses are addresses relative to the beginning of the program code (BinaryFile). With a static address, once you find it, you're done, because the address of the loader (BinaryFile) is easy to find. Unfortunately, not all memory of interest are "static", for these either code hack(often referred to as ASM hack) is needed or a pointer chain is needed(to find this chain is often referred to as pointer search).
 
-Pointer search is usually used to automatically find more complex pointer chains. For very simple pointer chains, only a debugger is needed to find them. Of course, pointer searches are often also useful in scenarios where a debugger cannot be used.
-
 ## Features:
 
 It contains three tools: 
@@ -35,10 +33,6 @@ It contains three tools:
 - [ ] nintendo-switch
 
 - [ ] x86_64-darwin
-
-## How to use?
-
-https://github.com/kekeimiku/PointerSearcher-X/blob/main/wiki/en.md
 
 ## About
 

@@ -1,17 +1,19 @@
 #![allow(clippy::missing_safety_doc)]
 
-use std::{
+use core::{
     cell::RefCell,
-    collections::HashSet,
-    ffi::{c_char, c_int, CStr, CString},
-    fs,
+    ffi::{c_char, c_int, CStr},
+    mem, ptr,
+};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::CString,
+    fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
-    mem,
     path::Path,
-    ptr,
 };
 
-use ptrsx::PtrsxScanner;
+use ptrsx::{Module, PtrsxScanner, UserParam};
 use vmmap::{Pid, Process, ProcessInfo, VirtualMemoryRead, VirtualQuery};
 
 thread_local! {
@@ -39,6 +41,8 @@ pub struct Param {
 
 const PTR_NULL: &str = "ptr is null";
 const NO_OPEN_PROCESS: &str = "no process is opened";
+const CACHE_INVALID: &str = "modules cache invalid";
+const PTR_CHAIN_INVALID: &str = "pointer chain invalid";
 
 macro_rules! null_ptr {
     ($m:expr) => {
@@ -64,13 +68,25 @@ macro_rules! ref_proc {
     };
 }
 
+macro_rules! ref_index {
+    ($m:expr) => {
+        match $m {
+            Some(val) => val,
+            None => {
+                set_last_error(CACHE_INVALID);
+                return -3;
+            }
+        }
+    };
+}
+
 macro_rules! error {
     ($m:expr) => {
         match $m {
             Ok(val) => val,
             Err(err) => {
                 set_last_error(err);
-                return -3;
+                return -4;
             }
         }
     };
@@ -80,6 +96,7 @@ macro_rules! error {
 pub struct PointerScanTool {
     scan: PtrsxScanner,
     proc: Option<Process>,
+    index: Option<HashMap<String, usize>>,
 }
 
 #[no_mangle]
@@ -138,13 +155,13 @@ pub unsafe extern "C" fn ptrs_load_pointer_map(
     let scan = &mut null_ptr!(ptr.as_mut()).scan;
     let info_path = error!(CStr::from_ptr(null_ptr!(info_path.as_ref())).to_str());
     dbg!(info_path);
-    let file = error!(fs::File::open(info_path));
+    let file = error!(File::open(info_path));
     error!(scan.load_modules_info(file));
 
     let bin_path = error!(CStr::from_ptr(null_ptr!(bin_path.as_ref())).to_str());
     dbg!(bin_path);
 
-    let file = error!(fs::File::open(bin_path));
+    let file = error!(File::open(bin_path));
     error!(scan.load_pointer_map(file));
     0
 }
@@ -166,16 +183,8 @@ pub unsafe extern "C" fn ptrs_scan_pointer_chain(
 
     dbg!(depth, addr, left, right, use_module, node, max, last);
 
-    let param = ptrsx::UserParam {
-        depth,
-        addr,
-        range: (left, right),
-        use_module,
-        use_cycle,
-        node,
-        max,
-        last,
-    };
+    let range = (left, right);
+    let param = UserParam { depth, addr, range, use_module, use_cycle, node, max, last };
 
     error!(scan.pointer_chain_scanner(param, file_name));
 
@@ -184,6 +193,8 @@ pub unsafe extern "C" fn ptrs_scan_pointer_chain(
 
 #[no_mangle]
 pub unsafe extern "C" fn compare_two_file(file1: *const c_char, file2: *const c_char, outfile: *const c_char) -> c_int {
+    use std::fs;
+
     let file1 = error!(CStr::from_ptr(null_ptr!(file1.as_ref())).to_str());
     let file2 = error!(CStr::from_ptr(null_ptr!(file2.as_ref())).to_str());
     let outfile = error!(CStr::from_ptr(null_ptr!(outfile.as_ref())).to_str());
@@ -195,63 +206,29 @@ pub unsafe extern "C" fn compare_two_file(file1: *const c_char, file2: *const c_
     let s1 = b1.lines().collect::<HashSet<_>>();
     let s2 = b2.lines().collect::<HashSet<_>>();
 
-    let f = error!(fs::OpenOptions::new().append(true).create(true).open(outfile));
+    let f = error!(File::options().append(true).create(true).open(outfile));
     let mut w = BufWriter::new(f);
     error!(s1.intersection(&s2).try_for_each(|s| writeln!(w, "{s}")));
 
     0
 }
 
-struct Module<'a> {
-    start: usize,
-    end: usize,
-    name: &'a str,
-}
-
-#[inline]
-fn find_base_address<P: ProcessInfo>(proc: &P, name: &str, index: usize) -> Option<usize> {
-    let vqs = proc.get_maps().flatten().collect::<Vec<_>>();
-    vqs.iter()
-        .filter(|x| x.is_write() && x.is_read())
-        .flat_map(|x| Some(Module { start: x.start(), end: x.end(), name: x.name()? }))
-        .fold(Vec::<Module>::with_capacity(vqs.len()), |mut acc, cur| {
-            match acc.last_mut() {
-                Some(last) if last.name == cur.name => last.end = cur.end,
-                _ => acc.push(cur),
-            }
-            acc
-        })
-        .into_iter()
-        .map(|Module { start, end, name }| {
-            let name = Path::new(name).file_name().and_then(|s| s.to_str()).unwrap_or(name);
-            Module { start, end, name }
-        })
-        .filter(|x| x.name.eq(name))
-        .nth(index)
-        .map(|x| x.start)
-}
-
-fn get_pointer_chain_address<P, S>(proc: &P, chain: S) -> Option<usize>
+fn get_pointer_chain_address<P>(proc: &P, index: &HashMap<String, usize>, chain: &str) -> Option<usize>
 where
     P: VirtualMemoryRead + ProcessInfo,
-    S: AsRef<str>,
 {
-    let mut parts = chain.as_ref().split(['[', ']', '+', '@']).filter(|s| !s.is_empty());
-    let name = parts.next()?;
-    let index = parts.next()?.parse().ok()?;
-    let offset = parts.next_back()?.parse().ok()?;
-    let elements = parts.map(|s| s.parse());
-
-    let mut address = find_base_address(proc, name, index)?;
-
+    let (module_name, cs) = chain.rsplit_once('+')?;
+    let mut iter = cs.split('.');
+    let base = iter.next()?.parse().ok()?;
+    let items = iter.map(|s| s.parse());
+    let mut address = index.get(module_name)?.checked_add(base)?;
     let mut buf = [0; mem::size_of::<usize>()];
-    for element in elements {
-        let element = element.ok()?;
-        proc.read_exact_at(&mut buf, address.checked_add_signed(element)?)
-            .ok()?;
-        address = usize::from_le_bytes(buf);
+    for item in items {
+        proc.read_exact_at(&mut buf, address).ok()?;
+        let item = item.ok()?;
+        address = usize::from_le_bytes(buf).checked_add_signed(item)?;
     }
-    address.checked_add_signed(offset)
+    Some(address)
 }
 
 #[no_mangle]
@@ -260,19 +237,23 @@ pub unsafe extern "C" fn ptrs_get_chain_addr(
     chain: *const c_char,
     addr: *mut usize,
 ) -> c_int {
-    let proc = ref_proc!(null_ptr!(ptr.as_ref()).proc.as_ref());
+    let ptr = null_ptr!(ptr.as_ref());
+    let proc = ref_proc!(ptr.proc.as_ref());
+    let index = ref_index!(ptr.index.as_ref());
     let chain = error!(CStr::from_ptr(null_ptr!(chain.as_ref())).to_str());
+
     dbg!(chain);
 
-    match get_pointer_chain_address(proc, chain) {
-        Some(ad) => addr.write(ad),
+    match get_pointer_chain_address(proc, index, chain) {
+        Some(ad) => {
+            addr.write(ad);
+            0
+        }
         None => {
-            set_last_error("invalid pointer chain");
-            return -1;
+            set_last_error(PTR_CHAIN_INVALID);
+            -1
         }
     }
-
-    0
 }
 
 #[no_mangle]
@@ -281,17 +262,20 @@ pub unsafe extern "C" fn ptrs_filter_invalid(
     infile: *const c_char,
     outfile: *const c_char,
 ) -> c_int {
-    let proc = ref_proc!(null_ptr!(ptr.as_ref()).proc.as_ref());
+    let ptr = null_ptr!(ptr.as_ref());
+    let proc = ref_proc!(ptr.proc.as_ref());
+    let index = ref_index!(ptr.index.as_ref());
+
     let infile = error!(CStr::from_ptr(null_ptr!(infile.as_ref())).to_str());
     let outfile = error!(CStr::from_ptr(null_ptr!(outfile.as_ref())).to_str());
 
     dbg!(infile, outfile);
 
-    let infile = error!(fs::File::open(infile));
+    let infile = error!(File::open(infile));
     let mut reader = BufReader::with_capacity(0x80000, infile);
     let line_buf = &mut String::with_capacity(0x2000);
 
-    let outfile = error!(fs::OpenOptions::new().append(true).create_new(true).open(outfile));
+    let outfile = error!(File::options().append(true).create_new(true).open(outfile));
     let mut writer = BufWriter::with_capacity(0x80000, outfile);
 
     loop {
@@ -299,7 +283,7 @@ pub unsafe extern "C" fn ptrs_filter_invalid(
         if size == 0 {
             break;
         }
-        if get_pointer_chain_address(proc, line_buf.trim()).is_some() {
+        if get_pointer_chain_address(proc, index, line_buf.trim()).is_some() {
             error!(writer.write_all(line_buf.as_bytes()))
         }
         line_buf.clear()
@@ -316,18 +300,21 @@ pub unsafe extern "C" fn ptrs_filter_value(
     data: *const u8,
     size: usize,
 ) -> c_int {
-    let proc = ref_proc!(null_ptr!(ptr.as_ref()).proc.as_ref());
+    let ptr = null_ptr!(ptr.as_ref());
+    let proc = ref_proc!(ptr.proc.as_ref());
+    let index = ref_index!(ptr.index.as_ref());
+
     let value = null_ptr!(ptr::slice_from_raw_parts(data, size).as_ref());
     let infile = error!(CStr::from_ptr(null_ptr!(infile.as_ref())).to_str());
     let outfile = error!(CStr::from_ptr(null_ptr!(outfile.as_ref())).to_str());
 
     dbg!(infile, outfile, value);
 
-    let infile = error!(fs::File::open(infile));
+    let infile = error!(File::open(infile));
     let mut reader = BufReader::with_capacity(0x80000, infile);
     let line_buf = &mut String::with_capacity(0x2000);
 
-    let outfile = error!(fs::OpenOptions::new().append(true).create_new(true).open(outfile));
+    let outfile = error!(File::options().append(true).create_new(true).open(outfile));
     let mut writer = BufWriter::with_capacity(0x80000, outfile);
 
     let mut value_buf = vec![0_u8; value.len()];
@@ -338,10 +325,9 @@ pub unsafe extern "C" fn ptrs_filter_value(
             break;
         }
 
-        if get_pointer_chain_address(proc, line_buf.trim())
+        if get_pointer_chain_address(proc, index, line_buf.trim())
             .and_then(|addr| proc.read_exact_at(&mut value_buf, addr).ok())
-            .is_some()
-            && value_buf == value
+            .is_some_and(|_| value_buf == value)
         {
             error!(writer.write_all(line_buf.as_bytes()))
         }
@@ -353,23 +339,57 @@ pub unsafe extern "C" fn ptrs_filter_value(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn refresh_modules_cache(ptr: *mut PointerScanTool) -> c_int {
+    let ptr = null_ptr!(ptr.as_mut());
+    let proc = ref_proc!(ptr.proc.as_ref());
+
+    let mappings = proc
+        .get_maps()
+        .flatten()
+        .filter(|x| x.is_write() && x.is_read())
+        .collect::<Vec<_>>();
+    let modules = mappings
+        .iter()
+        .flat_map(|x| Some(Module { start: x.start(), end: x.end(), name: x.name()? }))
+        .fold(Vec::<Module>::with_capacity(mappings.len()), |mut acc, cur| {
+            match acc.last_mut() {
+                Some(last) if last.name == cur.name => last.end = cur.end,
+                _ => acc.push(cur),
+            }
+            acc
+        })
+        .into_iter()
+        .map(|Module { start, name, .. }| {
+            let name = Path::new(name).file_name().and_then(|s| s.to_str()).unwrap_or(name);
+            (name.to_string(), start)
+        })
+        .collect::<HashMap<String, usize>>();
+
+    ptr.index = Some(modules);
+
+    0
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn ptrs_filter_addr(
     ptr: *mut PointerScanTool,
     infile: *const c_char,
     outfile: *const c_char,
     addr: usize,
 ) -> c_int {
-    let proc = ref_proc!(null_ptr!(ptr.as_ref()).proc.as_ref());
+    let ptr = null_ptr!(ptr.as_ref());
+    let proc = ref_proc!(ptr.proc.as_ref());
+    let index = ref_index!(ptr.index.as_ref());
     let infile = error!(CStr::from_ptr(null_ptr!(infile.as_ref())).to_str());
     let outfile = error!(CStr::from_ptr(null_ptr!(outfile.as_ref())).to_str());
 
     dbg!(infile, outfile, addr);
 
-    let infile = error!(fs::File::open(infile));
+    let infile = error!(File::open(infile));
     let mut reader = BufReader::with_capacity(0x80000, infile);
     let line_buf = &mut String::with_capacity(0x2000);
 
-    let outfile = error!(fs::OpenOptions::new().append(true).create_new(true).open(outfile));
+    let outfile = error!(File::options().append(true).create_new(true).open(outfile));
     let mut writer = BufWriter::with_capacity(0x80000, outfile);
 
     loop {
@@ -378,10 +398,8 @@ pub unsafe extern "C" fn ptrs_filter_addr(
             break;
         }
 
-        if let Some(taddr) = get_pointer_chain_address(proc, line_buf.trim()) {
-            if taddr == addr {
-                error!(writer.write_all(line_buf.as_bytes()))
-            }
+        if get_pointer_chain_address(proc, index, line_buf.trim()).is_some_and(|x| x == addr) {
+            error!(writer.write_all(line_buf.as_bytes()));
         }
 
         line_buf.clear()
