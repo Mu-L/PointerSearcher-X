@@ -12,6 +12,52 @@ pub struct Param {
     pub range: (usize, usize),
 }
 
+pub struct Chain<'a> {
+    addr: usize,
+    data: &'a [(usize, isize)],
+}
+
+impl Chain<'_> {
+    // 获取基址
+    #[inline]
+    pub const fn addr(&self) -> usize {
+        self.addr
+    }
+
+    // 获取指针链数据
+    #[inline]
+    pub fn data(&self) -> impl Iterator<Item = &isize> {
+        self.data.iter().rev().map(|(_, o)| o)
+    }
+
+    // 获取指针链长度
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    // // 获取指针链第一个偏移
+    // #[inline]
+    // pub fn first(&self) -> Option<&isize> {
+    //     self.data.last().map(|(_, o)| o)
+    // }
+
+    // 获取指针链最后一个偏移
+    #[inline]
+    pub fn last(&self) -> Option<&isize> {
+        self.data.first().map(|(_, o)| o)
+    }
+
+    // 检查循环引用
+    // Some 返回过滤后的指针链，None 表示不存在循环引用
+    #[inline]
+    pub fn ref_cycle(&self) -> Option<impl Iterator<Item = &isize>> {
+        let (first, rest) = self.data.split_first()?;
+        let n = rest.iter().position(|x| x.0 == first.0)?;
+        Some(iter::once(first).chain(rest.iter().skip(n + 1)).rev().map(|(_, o)| o))
+    }
+}
+
 // large amounts data
 fn _try_chain_scan_1<F, R>(map: &BTreeMap<usize, Vec<usize>>, points: &[usize], param: Param, f: &mut F) -> R
 where
@@ -141,50 +187,4 @@ where
     //     _ => _try_chain_scan_1(map, points, param, f),
     // }
     _try_chain_scan_1(map, points, param, f)
-}
-
-pub struct Chain<'a> {
-    addr: usize,
-    data: &'a [(usize, isize)],
-}
-
-impl Chain<'_> {
-    // 获取基址
-    #[inline]
-    pub const fn addr(&self) -> usize {
-        self.addr
-    }
-
-    // 获取指针链数据
-    #[inline]
-    pub fn data(&self) -> impl Iterator<Item = &isize> {
-        self.data.iter().rev().map(|(_, o)| o)
-    }
-
-    // 获取指针链长度
-    #[inline]
-    pub const fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    // // 获取指针链第一个偏移
-    // #[inline]
-    // pub fn first(&self) -> Option<&isize> {
-    //     self.data.last().map(|(_, o)| o)
-    // }
-
-    // 获取指针链最后一个偏移
-    #[inline]
-    pub fn last(&self) -> Option<&isize> {
-        self.data.first().map(|(_, o)| o)
-    }
-
-    // 检查循环引用
-    // Some 返回过滤后的指针链，None 表示不存在循环引用
-    #[inline]
-    pub fn ref_cycle(&self) -> Option<impl Iterator<Item = &isize>> {
-        let (first, rest) = self.data.split_first()?;
-        let n = rest.iter().position(|x| x.0 == first.0)?;
-        Some(iter::once(first).chain(rest.iter().skip(n + 1)).rev().map(|(_, o)| o))
-    }
 }
