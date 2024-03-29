@@ -44,7 +44,7 @@ https://github.com/korcankaraokcu/PINCE/issues/15
 
 妈的全网搜不到个支持 Linux/Mac 的指针扫描器，所以我编写了它，并且尽可能让它跨平台。
 
-如果您想将 PointerSearcher-X 集成到您的应用程序中，由于它公开了`C ABI`，这非常容易，并且其宽松的MIT许可证不会给您带来负担。 有关详细信息，请参考 [ffi/ptrsx.h](https://github.com/kekeimiku/PointerSearcher-X/blob/main/ffi/ptrsx.h)。
+如果您想将 PointerSearcher-X 集成到您的应用程序中，由于它公开了`C ABI`，这非常容易，并且其宽松的MIT许可证不会给您带来负担。 有关详细信息，请参考 [ffi/ptrsx.h](https://github.com/kekeimiku/PointerSearcher-X/blob/dev3/ffi/ptrsx.h)。
 
 ## 免责声明
 
