@@ -8,6 +8,7 @@ pub fn mapping_filter<Q: vmmap::VirtualQuery>(page: &Q) -> bool {
     if name.starts_with("/System/Library/")
         || name.starts_with("/usr/lib")
         || name.starts_with("/System/iOSSupport")
+        || name.starts_with("/private")
         || !name.starts_with('/')
     {
         return false;

@@ -12,14 +12,13 @@ use std::{
 mod error;
 mod mapping_filter;
 mod pointer_map;
-mod pointer_scan;
 mod rangemap;
 mod try_trait;
 
 pub use error::{Error, Result};
 use mapping_filter::mapping_filter;
 use pointer_map::try_create_pointer_map;
-use pointer_scan::{try_pointer_chain_scan, Chain, Param};
+use ptrscan::{try_pointer_chain_scan, Chain, Param};
 use rangemap::RangeMap;
 #[cfg(target_os = "macos")]
 use vmmap::macos::cmd::ProcessInfoCmdFixed as ProcessInfo;
@@ -118,6 +117,7 @@ impl PtrsxScanner {
                 *count += 1;
                 writeln!(writer, "{start:x}-{end:x} {name}")
             })?;
+        writer.flush().unwrap();
 
         let file = File::options().append(true).create_new(true).open(path2)?;
         let mut writer = BufWriter::new(file);

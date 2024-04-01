@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["vmmap", "ptrsx", "ffi", "scanner", "dumper"]
+members = ["vmmap", "ptrsx", "ffi", "scanner", "dumper", "ptrscan"]
 
 [profile.release]
 opt-level = 3
